@@ -19,6 +19,7 @@ import {
 import { Star, TrendingUp, CornerUpLeft, ArrowUp, ArrowDown, Activity } from 'lucide-react'
 import { useFilters } from '@/components/filters-context'
 import { useInstrumentData } from '@/components/instrument-provider'
+import { useGexBoard } from '@/lib/uw/hooks'
 import { allLevels } from '@/lib/analytics'
 import { cn } from '@/lib/utils'
 import type { Candle } from '@/lib/types'
@@ -47,6 +48,12 @@ function cssVar(name: string, fallback: string) {
     fallback
   const { r, g, b } = toRgb(raw)
   return `rgb(${r}, ${g}, ${b})`
+}
+
+function trailColor(kind: 'sticky' | 'slippery', strength: number) {
+  const token = kind === 'sticky' ? '--bull' : '--bear'
+  const pct = Math.round(35 + strength * 55)
+  return `color-mix(in oklch, var(${token}) ${pct}%, transparent)`
 }
 
 function cssVarAlpha(name: string, alpha: number, fallback: string) {
@@ -145,6 +152,13 @@ type Pill = {
   style: LevelStyle
 }
 
+type TrailBand = {
+  id: string
+  price: number
+  strength: number // 0..1
+  kind: 'sticky' | 'slippery'
+}
+
 export function TvChart() {
   const {
     symbol,
@@ -155,8 +169,14 @@ export function TvChart() {
     showReversal,
     showContinuation,
     showSellZone,
+    showTrails,
+    autoUpdate,
     focusSignal,
   } = useFilters()
+
+  // Dealer-positioning bands (sticky = positive gamma / support, slippery =
+  // negative gamma) drawn behind the price action as horizontal dot trails.
+  const { board } = useGexBoard(symbol, autoUpdate)
 
   // Everything the chart draws comes from the canonical analytics envelope.
   // No mock fallback: when live data is unavailable we render nothing rather
@@ -252,7 +272,26 @@ export function TvChart() {
     return out
   }, [levels, focus])
 
+  // Horizontal gamma bands: the strikes with the most net GEX near spot,
+  // colored sticky (positive gamma / dealers buy dips = support) or
+  // slippery (negative gamma / dealers sell dips = fuel for a fast move).
+  const trailBands = useMemo<TrailBand[]>(() => {
+    if (!showTrails || !board || board.symbol !== symbol) return []
+    const maxAbs = board.maxNetAbs || 1
+    return board.rows
+      .map((r) => ({
+        id: `trail-${r.strike}`,
+        price: r.strike,
+        strength: Math.min(1, Math.abs(r.net) / maxAbs),
+        kind: (r.net >= 0 ? 'sticky' : 'slippery') as 'sticky' | 'slippery',
+      }))
+      .filter((b) => b.strength >= 0.16)
+      .sort((a, b) => b.strength - a.strength)
+      .slice(0, 6)
+  }, [showTrails, board, symbol])
+
   const containerRef = useRef<HTMLDivElement>(null)
+  const trailOverlayRef = useRef<HTMLDivElement>(null)
   const overlayRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
   const candleSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
@@ -485,6 +524,20 @@ export function TvChart() {
     const tick = () => {
       const cs = candleSeriesRef.current
       const overlay = overlayRef.current
+      const trailOverlay = trailOverlayRef.current
+      if (cs && trailOverlay && trailOverlay.children.length) {
+        for (let i = 0; i < trailOverlay.children.length; i++) {
+          const band = trailBands[i]
+          const child = trailOverlay.children[i] as HTMLElement
+          const y = band ? cs.priceToCoordinate(band.price) : null
+          if (y == null) {
+            child.style.display = 'none'
+          } else {
+            child.style.display = ''
+            child.style.top = `${y}px`
+          }
+        }
+      }
       if (cs && overlay && overlay.children.length) {
         const items: { idx: number; y: number }[] = []
         for (let i = 0; i < pills.length; i++) {
@@ -513,7 +566,7 @@ export function TvChart() {
     }
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
-  }, [pills, hydrated])
+  }, [pills, trailBands, hydrated])
 
   return (
     <div className="relative h-full min-h-[420px] w-full">
@@ -528,6 +581,35 @@ export function TvChart() {
       </div>
 
       <div ref={containerRef} className="h-full w-full" />
+
+      {/* Gamma trail bands: sticky (support) vs slippery (fuel) price zones. */}
+      <div ref={trailOverlayRef} className="pointer-events-none absolute inset-0 z-[4] overflow-hidden">
+        {trailBands.map((b) => (
+          <div
+            key={b.id}
+            className="absolute left-0 right-14 -translate-y-1/2"
+            style={{ top: '-100px' }}
+          >
+            <div
+              style={{
+                height: `${3 + b.strength * 7}px`,
+                backgroundImage: `radial-gradient(circle, ${trailColor(b.kind, b.strength)} 1.6px, transparent 1.8px)`,
+                backgroundSize: '9px 100%',
+                backgroundRepeat: 'repeat-x',
+                backgroundPosition: 'center',
+              }}
+            />
+            <span
+              className={cn(
+                'absolute left-1.5 top-1/2 -translate-y-1/2 rounded px-1 py-px font-mono text-[9px] font-semibold leading-none backdrop-blur-sm',
+                b.kind === 'sticky' ? 'bg-bull/15 text-bull' : 'bg-bear/15 text-bear',
+              )}
+            >
+              {b.kind}
+            </span>
+          </div>
+        ))}
+      </div>
 
       {/* Right-edge level pills, attached to each price coordinate. */}
       <div

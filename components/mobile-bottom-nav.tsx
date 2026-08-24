@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 import {
   LayoutGrid,
   CandlestickChart,
-  Grid3x3,
+  Waves,
   Bell,
   Star,
   MoreHorizontal,
@@ -21,10 +21,10 @@ const ITEMS = [
     match: (p: string) => p.startsWith('/charting'),
   },
   {
-    href: '/flow-map',
+    href: '/flow',
     label: 'Flow',
-    icon: Grid3x3,
-    match: (p: string) => p.startsWith('/flow-map'),
+    icon: Waves,
+    match: (p: string) => p.startsWith('/flow') && !p.startsWith('/flow-map'),
   },
   {
     href: '/alerts',
@@ -40,7 +40,7 @@ const ITEMS = [
   },
 ]
 
-const MORE = ['/scanner', '/backtester', '/settings', '/help']
+const MORE = ['/flow-map', '/heatmap', '/scanner', '/backtester', '/settings', '/help']
 
 export function MobileBottomNav() {
   const pathname = usePathname()

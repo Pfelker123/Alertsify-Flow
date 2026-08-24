@@ -2,10 +2,15 @@ import type {
   AccountInfo,
   ActivitySummary,
   Candle,
+  FlowAggressor,
+  FlowPrint,
+  FlowSide,
   FlowSummary,
+  FlowTradeType,
   GammaCell,
   GammaColumn,
   HeatCell,
+  HeatTile,
   KeyLevel,
   PriceNode,
   Signal,
@@ -585,4 +590,264 @@ export function getAiSummary(symbol: string): string {
   )}. Bias stays bullish while price defends ${att.price.toFixed(
     0,
   )}. Watch the sell wall near ${rev.price.toFixed(0)}.`
+}
+
+// --- Unusual options flow (per-print feed) + market-wide heat map ---
+//
+// Both surfaces need a broader ticker universe than the header tape, so this
+// extends (without mutating) the RAW watchlist with additional large caps.
+// Sector tags drive the "All sectors" filter and the heat map grouping.
+
+const SECTOR_MAP: Record<string, string> = {
+  SPY: 'Index / ETF',
+  QQQ: 'Index / ETF',
+  IWM: 'Index / ETF',
+  DIA: 'Index / ETF',
+  SPX: 'Index / ETF',
+  GLD: 'Commodities',
+  TLT: 'Fixed Income',
+  VIX: 'Volatility',
+  TSLA: 'Consumer Discretionary',
+  NVDA: 'Semiconductors',
+  AMD: 'Semiconductors',
+  AVGO: 'Semiconductors',
+  SMCI: 'Semiconductors',
+  INTC: 'Semiconductors',
+  AAPL: 'Mega Cap Tech',
+  MSFT: 'Mega Cap Tech',
+  GOOGL: 'Mega Cap Tech',
+  AMZN: 'Mega Cap Tech',
+  META: 'Mega Cap Tech',
+  NFLX: 'Media & Comm.',
+  ORCL: 'Software',
+  CRM: 'Software',
+  ADBE: 'Software',
+  PLTR: 'Software',
+  COIN: 'Fintech / Crypto',
+  MSTR: 'Fintech / Crypto',
+  HOOD: 'Fintech / Crypto',
+  JPM: 'Financials',
+  UNH: 'Healthcare',
+  LLY: 'Healthcare',
+  PFE: 'Healthcare',
+  XOM: 'Energy',
+  CVX: 'Energy',
+  DIS: 'Media & Comm.',
+  BA: 'Industrials',
+  WMT: 'Consumer Staples',
+  KO: 'Consumer Staples',
+  UBER: 'Consumer Discretionary',
+  SHOP: 'Consumer Discretionary',
+  SNAP: 'Media & Comm.',
+  MU: 'Semiconductors',
+}
+
+const HEATMAP_EXTRA: Seed[] = [
+  { symbol: 'JPM', name: 'JPMorgan Chase', price: 243.6, changePercent: 0.62 },
+  { symbol: 'UNH', name: 'UnitedHealth Group', price: 570.28, changePercent: -1.14 },
+  { symbol: 'LLY', name: 'Eli Lilly', price: 812.45, changePercent: 1.05 },
+  { symbol: 'PFE', name: 'Pfizer Inc', price: 27.34, changePercent: -0.28 },
+  { symbol: 'XOM', name: 'Exxon Mobil', price: 118.9, changePercent: 0.41 },
+  { symbol: 'CVX', name: 'Chevron Corp', price: 158.22, changePercent: 0.33 },
+  { symbol: 'DIS', name: 'Walt Disney Co', price: 111.7, changePercent: -0.52 },
+  { symbol: 'BA', name: 'Boeing Co', price: 178.05, changePercent: 2.04 },
+  { symbol: 'WMT', name: 'Walmart Inc', price: 92.43, changePercent: 0.18 },
+  { symbol: 'KO', name: 'Coca-Cola Co', price: 71.16, changePercent: -0.09 },
+  { symbol: 'ORCL', name: 'Oracle Corp', price: 198.4, changePercent: 1.72 },
+  { symbol: 'CRM', name: 'Salesforce Inc', price: 302.11, changePercent: -0.68 },
+  { symbol: 'ADBE', name: 'Adobe Inc', price: 456.9, changePercent: -1.31 },
+  { symbol: 'UBER', name: 'Uber Technologies', price: 76.22, changePercent: 1.9 },
+  { symbol: 'SHOP', name: 'Shopify Inc', price: 108.5, changePercent: 2.63 },
+  { symbol: 'SNAP', name: 'Snap Inc', price: 11.62, changePercent: -2.87 },
+  { symbol: 'MU', name: 'Micron Technology', price: 118.34, changePercent: 3.05 },
+]
+
+/** Full flow/heat-map universe: the header tape plus the extra large caps above. */
+export const FLOW_UNIVERSE: Ticker[] = [
+  ...TICKERS,
+  ...HEATMAP_EXTRA.map((r) => {
+    const change = +(r.price * (r.changePercent / 100)).toFixed(2)
+    const bias =
+      r.changePercent > 0.4 ? 'bullish' : r.changePercent < -0.4 ? 'bearish' : 'neutral'
+    return { ...r, change, bias, spark: makeSpark(r.symbol.length * 53 + 11, r.changePercent / 4) } as Ticker
+  }),
+]
+
+export function sectorOf(symbol: string): string {
+  return SECTOR_MAP[symbol] ?? 'Other'
+}
+
+export const FLOW_SECTORS = Array.from(
+  new Set(FLOW_UNIVERSE.map((t) => sectorOf(t.symbol))),
+).sort()
+
+const TRADE_TYPE_WEIGHTS: [FlowTradeType, number][] = [
+  ['trade', 46],
+  ['sweep', 32],
+  ['block', 17],
+  ['split', 5],
+]
+
+function weightedPick<T>(rnd: () => number, weights: [T, number][]): T {
+  const total = weights.reduce((s, [, w]) => s + w, 0)
+  let r = rnd() * total
+  for (const [v, w] of weights) {
+    r -= w
+    if (r <= 0) return v
+  }
+  return weights[weights.length - 1][0]
+}
+
+// Rough Black-Scholes-flavored premium estimate — good enough to look
+// realistic without needing a real pricing engine for mock data.
+function estimatePremium(spot: number, strike: number, dte: number, iv: number, side: FlowSide) {
+  const t = Math.max(dte, 0.5) / 365
+  const moneyness = side === 'call' ? spot - strike : strike - spot
+  const intrinsic = Math.max(0, moneyness)
+  const timeValue = spot * (iv / 100) * Math.sqrt(t) * 0.4
+  const extra = Math.exp(-Math.abs(moneyness) / (spot * 0.06 + 1)) * timeValue
+  const price = intrinsic * 0.55 + extra + 0.05
+  return Math.max(0.03, +price.toFixed(2))
+}
+
+function pickSizeAndTrade(rnd: () => number): { size: number; tradeType: FlowTradeType } {
+  const tradeType = weightedPick(rnd, TRADE_TYPE_WEIGHTS)
+  // Power-law-ish size distribution: mostly small prints, occasional whales.
+  const base = Math.pow(rnd(), 2.6)
+  const scale = tradeType === 'block' ? 24000 : tradeType === 'sweep' ? 14000 : 6000
+  const size = Math.max(50, Math.round(50 + base * scale))
+  return { size, tradeType }
+}
+
+let flowSeq = 0
+
+function makeFlowPrint(rnd: () => number, minutesAgo: number): FlowPrint {
+  const universe = FLOW_UNIVERSE
+  // Weight the first dozen (index/mega-cap/high-flow names) more heavily so
+  // they dominate the feed the way they do in real unusual-flow scanners.
+  const idx = Math.floor(Math.pow(rnd(), 1.6) * universe.length)
+  const t = universe[Math.min(universe.length - 1, idx)]
+  const spot = t.price
+
+  const side: FlowSide = rnd() < 0.52 ? 'call' : 'put'
+  const dteBucket = weightedPick(rnd, [
+    [0, 22],
+    [1, 12],
+    [3, 16],
+    [7, 18],
+    [14, 14],
+    [30, 12],
+    [60, 6],
+  ] as [number, number][])
+  const dte = Math.max(0, dteBucket + Math.floor(rnd() * 3))
+  const expiration = new Date(Date.now() + dte * 86_400_000).toISOString().slice(0, 10)
+
+  const otmSign = side === 'call' ? 1 : -1
+  const otmMag = Math.pow(rnd(), 1.8) * 0.16 * (dte < 2 ? 1.6 : 1) // short-dated flow skews further OTM
+  const otmPercent = +(otmSign * otmMag * 100).toFixed(1)
+  const strikeRaw = spot * (1 + (otmSign * otmMag))
+  const step = spot > 400 ? 5 : spot > 100 ? 1 : spot > 20 ? 0.5 : 0.25
+  const strike = Math.round(strikeRaw / step) * step
+
+  const iv = +(18 + rnd() * 70).toFixed(1)
+  const price = estimatePremium(spot, strike, dte, iv, side)
+  const { size, tradeType } = pickSizeAndTrade(rnd)
+  const premium = Math.round(price * size * 100)
+
+  const deltaMag = Math.max(0.02, Math.min(0.98, 0.5 - otmMag * 2.2))
+  const delta = +((side === 'call' ? deltaMag : -deltaMag)).toFixed(2)
+
+  const aggressor: FlowAggressor = weightedPick(rnd, [
+    ['ask', 58],
+    ['bid', 30],
+    ['mid', 12],
+  ] as [FlowAggressor, number][])
+
+  const bullishPrint = (side === 'call' && aggressor === 'ask') || (side === 'put' && aggressor === 'bid')
+  const moveSincePercent = +(((rnd() - (bullishPrint ? 0.32 : 0.68)) * 6)).toFixed(2)
+
+  const openInterest = Math.round(size * (1.5 + rnd() * 6))
+  const volume = Math.round(size * (1 + rnd() * 1.4))
+
+  const time = new Date(Date.now() - minutesAgo * 60_000).toISOString()
+
+  flowSeq += 1
+  return {
+    id: `flow-${flowSeq}-${t.symbol}-${Math.round(rnd() * 1e6)}`,
+    time,
+    symbol: t.symbol,
+    sector: sectorOf(t.symbol),
+    side,
+    strike,
+    expiration,
+    dte,
+    otmPercent,
+    spotAtTrade: spot,
+    price,
+    premium,
+    size,
+    openInterest,
+    volume,
+    iv,
+    delta,
+    tradeType,
+    aggressor,
+    moveSincePercent,
+    repeat: tradeType === 'sweep' ? 2 + Math.floor(rnd() * 5) : 1,
+  }
+}
+
+/** A deterministic page of unusual-options-flow prints, newest first. */
+export function getOptionsFlow(count = 140): FlowPrint[] {
+  const rnd = seeded(count * 733 + 91)
+  const prints: FlowPrint[] = []
+  let minutesAgo = 0
+  for (let i = 0; i < count; i++) {
+    minutesAgo += rnd() * 2.4
+    prints.push(makeFlowPrint(rnd, minutesAgo))
+  }
+  return prints
+}
+
+/** One fresh print "just now" — used to simulate a live streaming tape client-side. */
+export function makeLiveFlowPrint(): FlowPrint {
+  const rnd = seeded(Date.now() % 2147483646)
+  return makeFlowPrint(rnd, rnd() * 0.15)
+}
+
+/** Aggregated per-ticker flow used by the market-wide heat map. */
+export function getHeatTiles(): HeatTile[] {
+  const prints = getOptionsFlow(900)
+  const bySymbol = new Map<string, { call: number; put: number; sweeps: number }>()
+  for (const p of prints) {
+    const agg = bySymbol.get(p.symbol) ?? { call: 0, put: 0, sweeps: 0 }
+    if (p.side === 'call') agg.call += p.premium
+    else agg.put += p.premium
+    if (p.tradeType === 'sweep') agg.sweeps += 1
+    bySymbol.set(p.symbol, agg)
+  }
+
+  const totals = FLOW_UNIVERSE.map((t) => {
+    const agg = bySymbol.get(t.symbol) ?? { call: 0, put: 0, sweeps: 0 }
+    const total = agg.call + agg.put
+    return { t, agg, total }
+  })
+  const maxTotal = Math.max(1, ...totals.map((x) => x.total))
+  const avgTotal = totals.reduce((s, x) => s + x.total, 0) / Math.max(1, totals.length)
+
+  return totals
+    .map(({ t, agg, total }) => ({
+      symbol: t.symbol,
+      name: t.name,
+      sector: sectorOf(t.symbol),
+      price: t.price,
+      changePercent: t.changePercent,
+      callPremium: agg.call,
+      putPremium: agg.put,
+      totalPremium: total,
+      netBiasPercent: total > 0 ? +(((agg.call - agg.put) / total) * 100).toFixed(1) : 0,
+      unusualScore: Math.round(Math.min(100, (total / Math.max(avgTotal, 1)) * 32 + (total / maxTotal) * 40)),
+      sweepCount: agg.sweeps,
+    }))
+    .sort((a, b) => b.totalPremium - a.totalPremium)
 }

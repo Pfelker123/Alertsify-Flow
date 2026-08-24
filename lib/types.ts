@@ -192,3 +192,49 @@ export interface GexBoard {
   metrics: GexBoardMetrics
   live: boolean
 }
+
+// --- Unusual options flow (per-print ticker tape / table) ---
+
+export type FlowSide = 'call' | 'put'
+export type FlowTradeType = 'sweep' | 'block' | 'split' | 'trade'
+export type FlowAggressor = 'ask' | 'bid' | 'mid'
+
+export interface FlowPrint {
+  id: string
+  time: string // ISO timestamp
+  symbol: string
+  sector: string
+  side: FlowSide
+  strike: number
+  expiration: string // ISO date
+  dte: number
+  otmPercent: number // signed: negative = ITM, positive = OTM
+  spotAtTrade: number
+  price: number // option premium per contract ($)
+  premium: number // total notional premium ($) = price * size * 100
+  size: number // contracts
+  openInterest: number
+  volume: number
+  iv: number // percent
+  delta: number // signed, -1..1
+  tradeType: FlowTradeType
+  aggressor: FlowAggressor
+  moveSincePercent: number // underlying move % since the print
+  repeat: number // how many prints at this strike/expiry in the window (sweep legs etc.)
+}
+
+// --- Market-wide flow heat map (ticker tiles) ---
+
+export interface HeatTile {
+  symbol: string
+  name: string
+  sector: string
+  price: number
+  changePercent: number
+  callPremium: number
+  putPremium: number
+  totalPremium: number // callPremium + putPremium, drives tile size
+  netBiasPercent: number // -100..100, (call-put)/(call+put)
+  unusualScore: number // 0-100, relative flow intensity vs. average
+  sweepCount: number
+}

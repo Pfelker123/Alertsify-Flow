@@ -25,6 +25,8 @@ interface FiltersState {
   setShowContinuation: (b: boolean) => void
   showSellZone: boolean
   setShowSellZone: (b: boolean) => void
+  showTrails: boolean
+  setShowTrails: (b: boolean) => void
   autoUpdate: boolean
   setAutoUpdate: (b: boolean) => void
   focusSignal: FocusSignal | null
@@ -44,6 +46,7 @@ export function FiltersProvider({ children }: { children: ReactNode }) {
   const [showReversal, setShowReversal] = useState(true)
   const [showContinuation, setShowContinuation] = useState(true)
   const [showSellZone, setShowSellZone] = useState(true)
+  const [showTrails, setShowTrails] = useState(true)
   const [autoUpdate, setAutoUpdate] = useState(true)
   const [focusSignal, setFocusSignal] = useState<FocusSignal | null>(null)
 
@@ -76,6 +79,8 @@ export function FiltersProvider({ children }: { children: ReactNode }) {
         setShowContinuation,
         showSellZone,
         setShowSellZone,
+        showTrails,
+        setShowTrails,
         autoUpdate,
         setAutoUpdate,
         focusSignal,

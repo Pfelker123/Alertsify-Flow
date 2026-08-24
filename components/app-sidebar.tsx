@@ -15,6 +15,8 @@ import {
   LifeBuoy,
   PanelLeftClose,
   PanelLeft,
+  Waves,
+  Flame,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ACCOUNT } from '@/lib/mock-data'
@@ -23,7 +25,9 @@ import { FlowstersLogo, FlowstersMark } from '@/components/flowsters-logo'
 
 const NAV = [
   { href: '/', label: 'Dashboard', icon: LayoutDashboard },
+  { href: '/flow', label: 'Options Flow', icon: Waves },
   { href: '/flow-map', label: 'Flow Map', icon: Grid3x3 },
+  { href: '/heatmap', label: 'Heat Map', icon: Flame },
   { href: '/charting', label: 'Charting', icon: CandlestickChart },
   { href: '/alerts', label: 'Alerts', icon: Bell },
   { href: '/scanner', label: 'Scanner', icon: Radar },

@@ -41,6 +41,8 @@ export function ChartToggles() {
     setShowContinuation,
     showSellZone,
     setShowSellZone,
+    showTrails,
+    setShowTrails,
     simpleMode,
     setSimpleMode,
   } = useFilters()
@@ -79,9 +81,15 @@ export function ChartToggles() {
         />
       </div>
 
-      <div className="ml-auto flex items-center gap-2">
-        <span className="text-sm font-medium">Simple Mode</span>
-        <Switch checked={simpleMode} onCheckedChange={setSimpleMode} />
+      <div className="ml-auto flex items-center gap-3">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium">Trails</span>
+          <Switch checked={showTrails} onCheckedChange={setShowTrails} />
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium">Simple Mode</span>
+          <Switch checked={simpleMode} onCheckedChange={setSimpleMode} />
+        </div>
       </div>
     </div>
   )
