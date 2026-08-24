@@ -1,10 +1,41 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { Star, Zap, Activity, TrendingUp, ArrowDown } from 'lucide-react'
 import { useFilters } from '@/components/filters-context'
 import { useGexBoard } from '@/lib/uw/hooks'
 import { cn } from '@/lib/utils'
 import type { GexBoardColumn, GexBoardMetrics, GexBoardRow } from '@/lib/types'
+
+// Which important level (if any) a strike represents, so it can be picked
+// out with the same color the rest of Flowster already uses for that level.
+type StrikeRole = 'spot' | 'flip' | 'attraction' | 'putWall' | 'grower'
+
+const ROLE_STYLE: Record<
+  StrikeRole,
+  { label: string; icon: typeof Star; text: string; rowBg: string; dashed?: boolean }
+> = {
+  spot: { label: 'Spot', icon: Zap, text: 'text-spot', rowBg: 'bg-spot/10' },
+  flip: { label: 'Gamma Flip', icon: Activity, text: 'text-spot', rowBg: 'bg-spot/5', dashed: true },
+  attraction: { label: 'Attraction', icon: Star, text: 'text-attraction', rowBg: 'bg-attraction/10' },
+  putWall: { label: 'Put Wall', icon: ArrowDown, text: 'text-bear', rowBg: 'bg-bear/10' },
+  grower: { label: 'Grower', icon: TrendingUp, text: 'text-bull', rowBg: 'bg-bull/10' },
+}
+
+// Priority when a strike could match more than one role (spot wins, etc).
+const ROLE_PRIORITY: StrikeRole[] = ['spot', 'flip', 'attraction', 'putWall', 'grower']
+
+function roleOf(row: GexBoardRow, metrics: GexBoardMetrics): StrikeRole | null {
+  const eq = (a: number, b: number) => Math.abs(a - b) < 0.005
+  const matches: StrikeRole[] = []
+  if (row.isSpot) matches.push('spot')
+  if (eq(row.strike, metrics.gammaFlip)) matches.push('flip')
+  if (eq(row.strike, metrics.callWall) || eq(row.strike, metrics.zeroDte)) matches.push('attraction')
+  if (eq(row.strike, metrics.putWall)) matches.push('putWall')
+  if (eq(row.strike, metrics.grower.strike)) matches.push('grower')
+  if (matches.length === 0) return null
+  return ROLE_PRIORITY.find((r) => matches.includes(r)) ?? matches[0]
+}
 
 // Compact dollar formatter: 1_250_000_000 -> "$1.3B", -47_500 -> "-$47.5K".
 function money(v: number | null): string {
@@ -128,6 +159,11 @@ function BoardLegend() {
     { label: 'Positive gamma (support)', cls: 'bg-bull' },
     { label: 'Negative gamma (fuel)', cls: 'bg-bear' },
     { label: '0DTE expiry', cls: 'bg-spot' },
+    { label: 'Spot', cls: 'bg-spot' },
+    { label: 'Attraction', cls: 'bg-attraction' },
+    { label: 'Gamma Flip', cls: 'bg-spot' },
+    { label: 'Put Wall', cls: 'bg-bear' },
+    { label: 'Grower', cls: 'bg-bull' },
   ]
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
@@ -147,18 +183,22 @@ function StrikeDetail({
   columns,
   spot,
   maxCellAbs,
+  role,
   onClose,
 }: {
   row: GexBoardRow
   columns: GexBoardColumn[]
   spot: number
   maxCellAbs: number
+  role: StrikeRole | null
   onClose: () => void
 }) {
   const dist = ((row.strike - spot) / spot) * 100
   const positive = row.net >= 0
   const colMax =
     Math.max(1, ...row.values.map((v) => Math.abs(v ?? 0))) || maxCellAbs
+  const style = role ? ROLE_STYLE[role] : null
+  const RoleIcon = style?.icon
   return (
     <aside className="flex w-full flex-col gap-3 rounded-xl border border-border bg-card p-4 xl:w-72">
       <div className="flex items-start justify-between">
@@ -173,6 +213,12 @@ function StrikeDetail({
             <span className="font-mono text-xl font-semibold tabular-nums text-foreground">
               {row.strike}
             </span>
+            {style && RoleIcon && (
+              <span className={cn('flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold', style.rowBg, style.text)}>
+                <RoleIcon className="size-3" />
+                {style.label}
+              </span>
+            )}
           </div>
           <span className="text-[11px] text-text-muted">
             {dist >= 0 ? '+' : ''}
@@ -323,7 +369,11 @@ export function GexBoard() {
             </tr>
           </thead>
           <tbody>
-            {rows.map((row) => (
+            {rows.map((row) => {
+              const role = roleOf(row, metrics)
+              const style = role ? ROLE_STYLE[role] : null
+              const Icon = style?.icon
+              return (
               <tr
                 key={row.strike}
                 onClick={() =>
@@ -331,23 +381,25 @@ export function GexBoard() {
                 }
                 className={cn(
                   'cursor-pointer border-b border-border/40 transition-colors last:border-0 hover:bg-accent/60',
-                  row.isSpot && 'bg-spot/5',
+                  style?.rowBg,
+                  style?.dashed && 'border-y border-dashed border-spot/40',
                   selected === row.strike && 'bg-primary/10 ring-1 ring-inset ring-primary/40',
                 )}
               >
                 <td
                   className={cn(
                     'sticky left-0 z-10 px-3 py-1.5 font-mono text-[12px] tabular-nums',
-                    selected === row.strike ? 'bg-primary/10' : 'bg-card',
-                    row.isSpot
-                      ? 'font-bold text-spot'
-                      : 'text-muted-foreground',
+                    selected === row.strike ? 'bg-primary/10' : style ? style.rowBg : 'bg-card',
+                    style ? cn('font-bold', style.text) : 'text-muted-foreground',
                   )}
                 >
-                  {row.isSpot ? (
-                    <span className="flex items-center gap-1.5">
-                      <span className="size-1.5 rounded-full bg-spot" />
+                  {style && Icon ? (
+                    <span className="flex items-center gap-1.5" title={style.label}>
+                      <Icon className={cn('size-3 shrink-0', style.text)} />
                       {row.strike}
+                      <span className="text-[9px] font-semibold uppercase tracking-wide">
+                        {style.label}
+                      </span>
                     </span>
                   ) : (
                     row.strike
@@ -397,7 +449,8 @@ export function GexBoard() {
                   </div>
                 </td>
               </tr>
-            ))}
+              )
+            })}
           </tbody>
         </table>
       </div>
@@ -408,6 +461,7 @@ export function GexBoard() {
             columns={columns}
             spot={spot}
             maxCellAbs={maxCellAbs}
+            role={roleOf(selectedRow, metrics)}
             onClose={() => setSelected(null)}
           />
         )}
