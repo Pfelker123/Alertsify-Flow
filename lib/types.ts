@@ -223,18 +223,39 @@ export interface FlowPrint {
   repeat: number // how many prints at this strike/expiry in the window (sweep legs etc.)
 }
 
-// --- Market-wide flow heat map (ticker tiles) ---
+// --- Gamma Heat Map: strike x expiry board with per-expiry Flowster levels ---
 
-export interface HeatTile {
+export interface GammaHeatmapColumn {
+  date: string // ISO date
+  label: string // "08/24"
+  dte: number
+  isNearest: boolean
+  attraction: number // this expiry's Attraction (pin) price
+  wall: number // this expiry's Call Wall price
+  move: number // this expiry's Implied Move band edge
+}
+
+export interface GammaHeatmapRow {
+  strike: number
+  values: (number | null)[] // net GEX $ per column, aligned to columns
+  net: number // aggregate net GEX $ across all expiries
+  netPct: number // 0-100, |net| as a share of the board's largest row
+  trendUp: boolean // synthetic intraday momentum direction for the net badge
+  trendPct: number // 0-100
+  isSpot: boolean
+  isFlip: boolean // Gamma Flip strike
+  isReversal: boolean // Reversal-risk strike
+  isAttraction: boolean // dominant Attraction (pin) strike
+  moveBand: '1x' | '1.5x' | '2x' | null // implied-move multiple this strike sits on
+}
+
+export interface GammaHeatmap {
   symbol: string
-  name: string
-  sector: string
-  price: number
-  changePercent: number
-  callPremium: number
-  putPremium: number
-  totalPremium: number // callPremium + putPremium, drives tile size
-  netBiasPercent: number // -100..100, (call-put)/(call+put)
-  unusualScore: number // 0-100, relative flow intensity vs. average
-  sweepCount: number
+  spot: number
+  updatedMinutesAgo: number
+  columns: GammaHeatmapColumn[]
+  rows: GammaHeatmapRow[]
+  maxCellAbs: number // for cell color scaling
+  maxNetAbs: number // for net bar scaling
+  metrics: GexBoardMetrics
 }

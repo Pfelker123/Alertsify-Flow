@@ -9,8 +9,11 @@ import type {
   FlowTradeType,
   GammaCell,
   GammaColumn,
+  GammaHeatmap,
+  GammaHeatmapColumn,
+  GammaHeatmapRow,
+  GexBoardMetrics,
   HeatCell,
-  HeatTile,
   KeyLevel,
   PriceNode,
   Signal,
@@ -815,39 +818,139 @@ export function makeLiveFlowPrint(): FlowPrint {
   return makeFlowPrint(rnd, rnd() * 0.15)
 }
 
-/** Aggregated per-ticker flow used by the market-wide heat map. */
-export function getHeatTiles(): HeatTile[] {
-  const prints = getOptionsFlow(900)
-  const bySymbol = new Map<string, { call: number; put: number; sweeps: number }>()
-  for (const p of prints) {
-    const agg = bySymbol.get(p.symbol) ?? { call: 0, put: 0, sweeps: 0 }
-    if (p.side === 'call') agg.call += p.premium
-    else agg.put += p.premium
-    if (p.tradeType === 'sweep') agg.sweeps += 1
-    bySymbol.set(p.symbol, agg)
+// --- Gamma Heat Map: strike x expiry board, self-contained (no live feed) ---
+
+export const HEATMAP_STRIKE_COUNTS = [30, 50, 100, 150] as const
+export type HeatmapStrikeCount = (typeof HEATMAP_STRIKE_COUNTS)[number]
+
+/** Next N weekdays as ISO dates, starting today. */
+function nextWeekdays(count: number): string[] {
+  const out: string[] = []
+  const d = new Date()
+  while (out.length < count) {
+    const day = d.getUTCDay()
+    if (day !== 0 && day !== 6) out.push(d.toISOString().slice(0, 10))
+    d.setUTCDate(d.getUTCDate() + 1)
+  }
+  return out
+}
+
+/**
+ * A single-symbol strike x expiry gamma board, generated locally so the Heat
+ * Map page always has something rich to show even without a live options
+ * feed configured. Shaped like the live GexBoard (same GexBoardMetrics), with
+ * added per-expiry Attraction/Wall/Move annotations and per-strike Flowster
+ * level badges (Spot, Gamma Flip, Attraction, Reversal, implied-move bands).
+ */
+export function getGammaHeatmap(symbol: string, strikeCount: HeatmapStrikeCount = 50): GammaHeatmap {
+  const t = getTicker(symbol)
+  const spot = t.price
+  const rnd = seeded(Math.round(spot * 101) + strikeCount * 7 + symbol.length * 53 + 17)
+
+  const dates = nextWeekdays(9)
+  const columns: GammaHeatmapColumn[] = dates.map((date, i) => {
+    const spread = spot * (0.004 + i * 0.0032)
+    return {
+      date,
+      label: new Date(date + 'T00:00:00Z').toLocaleDateString('en-US', {
+        month: '2-digit',
+        day: '2-digit',
+        timeZone: 'UTC',
+      }),
+      dte: i,
+      isNearest: i === 0,
+      attraction: +(spot + (rnd() - 0.5) * spread * 2).toFixed(2),
+      wall: +(spot + (rnd() - 0.5) * spread * 2.4).toFixed(2),
+      move: +(spot + (rnd() - 0.4) * spread * 3.2).toFixed(1),
+    }
+  })
+
+  const step = spot > 400 ? 1 : spot > 100 ? 0.5 : spot > 20 ? 0.25 : 0.1
+  const spotStrike = +(Math.round(spot / step) * step).toFixed(2)
+  const half = Math.max(1, Math.floor(strikeCount / 2))
+  const strikes = Array.from({ length: half * 2 + 1 }, (_, i) =>
+    +(spotStrike + (half - i) * step).toFixed(2),
+  ).slice(0, strikeCount)
+
+  // The "pin": a strike a few ticks above spot that carries the heaviest
+  // negative gamma, decaying outward and flipping positive at the wings —
+  // mirrors a typical dealer-short-gamma profile around current price.
+  const pinStrike = spotStrike + step * (2 + Math.floor(rnd() * 2))
+  const peakMag = spot * 9000 * (0.8 + rnd() * 0.6)
+
+  const raw = strikes.map((strike) => {
+    const distFromPin = strike - pinStrike
+    const values = columns.map((c) => {
+      const colScale = c.dte === 0 ? 1 : 1 / (1 + c.dte * 2.1)
+      const decay = Math.exp(-Math.abs(distFromPin) / (step * 6))
+      let v = -peakMag * decay * colScale
+      if (distFromPin > step * 5) v = Math.abs(v) * 0.55 // call-side wing flips supportive
+      if (strike < spotStrike - step * 7) v = Math.abs(v) * 0.4 // deep put wall support
+      v += (rnd() - 0.5) * peakMag * 0.12 * colScale
+      return Math.round(v)
+    })
+    const net = values.reduce((s, v) => s + (v ?? 0), 0)
+    return { strike, values, net }
+  })
+
+  const maxCellAbs = Math.max(1, ...raw.flatMap((r) => r.values.map((v) => Math.abs(v ?? 0))))
+  const maxNetAbs = Math.max(1, ...raw.map((r) => Math.abs(r.net)))
+
+  const byAbsNet = [...raw].sort((a, b) => Math.abs(b.net) - Math.abs(a.net))
+  const attractionStrike = byAbsNet[0]?.strike ?? pinStrike
+  const reversalStrike = byAbsNet[1]?.strike ?? pinStrike + step
+  // The zero-gamma crossover sits just past where the formula's own sign
+  // flip kicks in above the pin — always close to price, never off in the
+  // wings, regardless of noise elsewhere on the board.
+  const flipTarget = +(pinStrike + step * 6).toFixed(2)
+  const flipRow = raw.reduce((best, r) => (Math.abs(r.strike - flipTarget) < Math.abs(best.strike - flipTarget) ? r : best), raw[0])
+  const putWallRow = [...raw].filter((r) => r.strike < spotStrike).sort((a, b) => a.net - b.net)[0]
+  const growerRow = [...raw].sort((a, b) => b.net - a.net)[0]
+  const netGex = raw.reduce((s, r) => s + r.net, 0)
+  const move = +(spot * 0.0047 * (1 + rnd() * 0.3)).toFixed(2)
+
+  const rows: GammaHeatmapRow[] = raw.map((r) => {
+    const emMultiple = Math.abs(r.strike - spot) / (move || 1)
+    // Only flag strikes that sit right on a 1x/1.5x/2x implied-move ring —
+    // a sparse handful of badges, not one on every row.
+    const halfStep = step / 2 / (move || 1)
+    const band = [1, 1.5, 2].find((b) => Math.abs(emMultiple - b) <= Math.max(0.12, halfStep))
+    const moveBand: GammaHeatmapRow['moveBand'] = band ? (`${band}x` as GammaHeatmapRow['moveBand']) : null
+    return {
+      strike: r.strike,
+      values: r.values,
+      net: r.net,
+      netPct: Math.round((Math.abs(r.net) / maxNetAbs) * 100),
+      trendUp: rnd() > 0.42,
+      trendPct: Math.round(8 + rnd() * 45),
+      isSpot: r.strike === spotStrike,
+      isFlip: r.strike === flipRow.strike,
+      isReversal: r.strike === reversalStrike,
+      isAttraction: r.strike === attractionStrike,
+      moveBand,
+    }
+  })
+
+  const metrics: GexBoardMetrics = {
+    netGex,
+    putWall: putWallRow?.strike ?? spotStrike - step * 6,
+    callWall: attractionStrike,
+    zeroDte: attractionStrike,
+    gammaFlip: flipRow.strike,
+    grower: { strike: growerRow?.strike ?? spotStrike, share: Math.round(40 + rnd() * 55) },
+    move,
+    atmIv: +(14 + rnd() * 10).toFixed(1),
+    regime: netGex >= 0 ? 'positive' : 'negative',
   }
 
-  const totals = FLOW_UNIVERSE.map((t) => {
-    const agg = bySymbol.get(t.symbol) ?? { call: 0, put: 0, sweeps: 0 }
-    const total = agg.call + agg.put
-    return { t, agg, total }
-  })
-  const maxTotal = Math.max(1, ...totals.map((x) => x.total))
-  const avgTotal = totals.reduce((s, x) => s + x.total, 0) / Math.max(1, totals.length)
-
-  return totals
-    .map(({ t, agg, total }) => ({
-      symbol: t.symbol,
-      name: t.name,
-      sector: sectorOf(t.symbol),
-      price: t.price,
-      changePercent: t.changePercent,
-      callPremium: agg.call,
-      putPremium: agg.put,
-      totalPremium: total,
-      netBiasPercent: total > 0 ? +(((agg.call - agg.put) / total) * 100).toFixed(1) : 0,
-      unusualScore: Math.round(Math.min(100, (total / Math.max(avgTotal, 1)) * 32 + (total / maxTotal) * 40)),
-      sweepCount: agg.sweeps,
-    }))
-    .sort((a, b) => b.totalPremium - a.totalPremium)
+  return {
+    symbol,
+    spot,
+    updatedMinutesAgo: Math.round(rnd() * 20),
+    columns,
+    rows,
+    maxCellAbs,
+    maxNetAbs,
+    metrics,
+  }
 }

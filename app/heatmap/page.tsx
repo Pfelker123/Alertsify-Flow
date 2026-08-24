@@ -1,14 +1,14 @@
 import { PageHeader } from '@/components/page-header'
-import { FlowHeatmap } from '@/components/heatmap/flow-heatmap'
+import { GammaHeatmap } from '@/components/heatmap/gamma-heatmap'
 
 export default function HeatmapPage() {
   return (
     <div className="mx-auto max-w-[1600px] space-y-6 p-4 md:p-6">
       <PageHeader
-        title="Flow Heat Map"
-        description="The whole market's options flow at a glance — tile size is total premium traded, color is the call/put bias, grouped by sector."
+        title="Heat Map"
+        description="Strike-by-expiry net gamma exposure, colored by dealer positioning — with Spot, Attraction, Gamma Flip and Reversal levels called out right on the board."
       />
-      <FlowHeatmap />
+      <GammaHeatmap />
     </div>
   )
 }
