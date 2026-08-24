@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { Star, Zap, Waves, CornerUpLeft, Activity, TrendingUp, ArrowLeftRight, ChevronRight } from 'lucide-react'
+import { Star, Zap, Waves, CornerUpLeft, TrendingUp, ArrowLeftRight, ChevronRight, ChevronLeft } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { FLOW_UNIVERSE, HEATMAP_STRIKE_COUNTS, type HeatmapStrikeCount } from '@/lib/mock-data'
 import { useGammaHeatmap } from '@/lib/uw/hooks'
@@ -32,14 +32,44 @@ function fmtDate(iso: string) {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
 }
 
-// Cell background scaled by magnitude, bull for positive / bear for negative — the
-// same green/red gamma-exposure language used everywhere else in Flowster.
-function cellStyle(v: number | null, max: number) {
-  if (v === null || v === 0) return undefined
-  const a = Math.min(1, Math.abs(v) / max)
+// Standard monthly options expiration = the 3rd Friday of the month;
+// quarterly OPEX is that same Friday in Mar/Jun/Sep/Dec.
+function opexInfo(iso: string): { quarterly: boolean } | null {
+  const d = new Date(iso + 'T00:00:00Z')
+  const firstOfMonth = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1))
+  const firstFridayOffset = (5 - firstOfMonth.getUTCDay() + 7) % 7
+  const thirdFriday = 1 + firstFridayOffset + 14
+  if (d.getUTCDate() !== thirdFriday) return null
+  const quarterly = [2, 5, 8, 11].includes(d.getUTCMonth())
+  return { quarterly }
+}
+
+// Voltick-style board: real cells get a bold, near-solid fill (bull green /
+// bear red) with bright white text — a checkerboard of hot/cold blocks you
+// can read from across the room, not a subtle per-cell gradient. Only true
+// noise (sub-$1K, or a rounding-error sliver of the board's scale) recedes
+// to dim ink on bare background. The biggest strikes get one step brighter
+// plus a glow so they still stand out from the rest of the solid fill.
+function cellVisual(v: number | null, max: number) {
+  if (v === null || v === 0) {
+    return { style: undefined, cls: 'text-muted-foreground/30 font-normal' }
+  }
+  const abs = Math.abs(v)
+  // A fixed-ish floor, not a share of the board's max — otherwise a single
+  // huge print at the pin strike would wash out every other genuinely large
+  // number on the board just because it isn't THE biggest.
+  const trivial = abs < Math.max(max * 0.004, 15_000)
+  if (trivial) {
+    return { style: undefined, cls: 'text-foreground/45 font-normal' }
+  }
   const token = v > 0 ? '--bull' : '--bear'
+  const huge = abs >= max * 0.55
   return {
-    backgroundColor: `color-mix(in oklch, var(${token}) ${Math.round(a * 68 + 8)}%, transparent)`,
+    style: {
+      backgroundColor: `color-mix(in oklch, var(${token}) ${huge ? 82 : 58}%, black)`,
+      ...(huge ? { boxShadow: `0 0 14px -2px color-mix(in oklch, var(${token}) 75%, transparent)` } : {}),
+    },
+    cls: huge ? 'text-[12px] font-extrabold text-white' : 'text-[11.5px] font-bold text-white',
   }
 }
 
@@ -125,23 +155,42 @@ export function GammaHeatmap() {
                 <th className="sticky left-0 top-0 z-20 bg-card px-3 py-2 text-left text-[11px] font-medium text-muted-foreground">
                   Strike
                 </th>
-                {columns.map((c) => (
-                  <th key={c.date} className={cn('px-2 py-1.5 text-center align-top', c.isNearest && 'bg-primary/5')}>
-                    <div className="flex flex-col items-center gap-0.5">
-                      <span className={cn('font-mono text-[11px] tabular-nums', c.isNearest ? 'font-semibold text-primary' : 'text-muted-foreground')}>
-                        {c.label}
-                      </span>
-                      <HeaderStat icon={Star} cls="text-attraction" value={c.attraction} />
-                      <HeaderStat icon={Zap} cls="text-foreground/70" value={c.wall} />
-                      <HeaderStat icon={Waves} cls="text-spot" value={c.move} />
-                      {c.isNearest && (
-                        <span className="mt-0.5 rounded bg-primary/15 px-1 text-[8px] font-semibold text-primary">
-                          {board.updatedMinutesAgo}m ago
-                        </span>
+                {columns.map((c) => {
+                  const opex = opexInfo(c.date)
+                  return (
+                    <th
+                      key={c.date}
+                      className={cn(
+                        'px-2 py-1.5 text-center align-top',
+                        c.isNearest && 'rounded-t-md ring-1 ring-inset ring-primary/60 bg-primary/10',
                       )}
-                    </div>
-                  </th>
-                ))}
+                    >
+                      <div className="flex flex-col items-center gap-0.5">
+                        <span className={cn('font-mono text-[11.5px] tabular-nums', c.isNearest ? 'font-extrabold text-primary' : 'font-semibold text-foreground/80')}>
+                          {c.label}
+                        </span>
+                        <HeaderStat icon={Star} cls="text-attraction" value={c.attraction} />
+                        <HeaderStat icon={Zap} cls="text-spot" value={c.wall} />
+                        <HeaderStat icon={Waves} cls="text-foreground/60" value={c.move} />
+                        {opex && (
+                          <span
+                            className={cn(
+                              'mt-0.5 rounded px-1 text-[8px] font-bold uppercase tracking-wide',
+                              opex.quarterly ? 'bg-attraction/25 text-attraction' : 'bg-secondary text-muted-foreground',
+                            )}
+                          >
+                            OPEX{opex.quarterly ? ' · Q' : ''}
+                          </span>
+                        )}
+                        {c.isNearest && (
+                          <span className="mt-0.5 rounded bg-primary/25 px-1 text-[8px] font-bold text-primary">
+                            {board.updatedMinutesAgo}m ago
+                          </span>
+                        )}
+                      </div>
+                    </th>
+                  )
+                })}
                 <th className="px-3 py-2 text-right text-[11px] font-medium text-muted-foreground">Net GEX</th>
               </tr>
             </thead>
@@ -184,8 +233,8 @@ export function GammaHeatmap() {
 
 function HeaderStat({ icon: Icon, cls, value }: { icon: typeof Star; cls: string; value: number }) {
   return (
-    <span className="flex items-center gap-0.5 font-mono text-[10px] tabular-nums text-foreground/85">
-      <Icon className={cn('size-2.5', cls)} />
+    <span className="flex items-center gap-0.5 font-mono text-[10.5px] font-semibold tabular-nums text-foreground">
+      <Icon className={cn('size-2.5', cls)} strokeWidth={2.5} />
       {value.toFixed(value >= 1000 ? 0 : 1)}
     </span>
   )
@@ -215,62 +264,93 @@ function HeatRow({
   selected: boolean
   onSelect: () => void
 }) {
-  const special = row.isSpot || row.isFlip || row.isReversal || row.isAttraction
+  const roleCls = row.isSpot
+    ? 'bg-spot/25 text-spot'
+    : row.isReversal
+      ? 'bg-reversal/25 text-reversal'
+      : row.isAttraction
+        ? 'bg-attraction/25 text-attraction'
+        : row.isFlip
+          ? 'bg-spot/15 text-spot'
+          : null
   return (
     <tr
       onClick={onSelect}
       data-spot-row={row.isSpot ? 'true' : undefined}
       className={cn(
-        'cursor-pointer border-b border-border/40 transition-colors last:border-0 hover:bg-accent/50',
-        row.isSpot && 'bg-spot/10',
-        row.isReversal && !row.isSpot && 'bg-reversal/10',
-        row.isAttraction && !row.isSpot && !row.isReversal && 'bg-attraction/10',
-        row.isFlip && 'border-y border-dashed border-spot/40',
+        'cursor-pointer transition-colors last:border-0 hover:bg-accent/50',
         selected && 'ring-1 ring-inset ring-primary/50',
       )}
     >
       <td
         className={cn(
-          'sticky left-0 z-10 px-3 py-1 font-mono text-[12px] tabular-nums',
-          selected ? 'bg-primary/10' : row.isSpot ? 'bg-spot/10' : row.isReversal ? 'bg-reversal/10' : row.isAttraction ? 'bg-attraction/10' : 'bg-card',
+          'sticky left-0 z-10 border-b border-border/60 px-3 py-1 font-mono text-[12px] tabular-nums',
+          selected ? 'bg-primary/15' : roleCls ? roleCls.split(' ')[0] : 'bg-card',
         )}
       >
         <div className="flex items-center gap-1.5">
           {row.moveBand && (
-            <span className="rounded bg-secondary px-1 text-[8px] font-semibold text-muted-foreground" title={`${row.moveBand} implied move from spot`}>
+            <span
+              className="rounded bg-secondary px-1 text-[8px] font-bold text-muted-foreground"
+              title={`${row.moveBand} implied move from spot`}
+            >
               {row.moveBand}
             </span>
           )}
-          {row.isSpot && <Zap className="size-3 text-spot" />}
-          {row.isFlip && !row.isSpot && <Activity className="size-3 text-spot" />}
-          {row.isReversal && <CornerUpLeft className="size-3 text-reversal" />}
-          {row.isAttraction && <Star className="size-3 text-attraction" />}
+          {row.isSpot && <ChevronLeft className="size-3.5 text-spot" strokeWidth={3} />}
+          {row.isFlip && !row.isSpot && <Zap className="size-3.5 text-spot" strokeWidth={2.5} fill="currentColor" />}
+          {row.isReversal && <CornerUpLeft className="size-3.5 text-reversal" strokeWidth={2.5} />}
+          {row.isAttraction && <Star className="size-3.5 text-attraction" strokeWidth={2} fill="currentColor" />}
           <span
             className={cn(
-              'font-semibold',
-              row.isSpot ? 'text-spot' : row.isReversal ? 'text-reversal' : row.isAttraction ? 'text-attraction' : special ? 'text-foreground' : 'text-muted-foreground',
+              'text-[13px] font-bold',
+              row.isSpot
+                ? 'text-spot'
+                : row.isReversal
+                  ? 'text-reversal'
+                  : row.isAttraction
+                    ? 'text-attraction'
+                    : row.isFlip
+                      ? 'text-spot'
+                      : 'text-foreground/70 text-[12px] font-semibold',
             )}
           >
             {row.strike}
           </span>
-          {row.isSpot && <span className="text-[9px] font-semibold uppercase tracking-wide text-spot">Spot</span>}
-          {row.isFlip && !row.isSpot && <span className="text-[9px] font-semibold uppercase tracking-wide text-spot">Flip</span>}
+          {(row.isAttraction || row.isReversal) && (
+            <span
+              className={cn(
+                'rounded-full px-1.5 py-px text-[9px] font-bold',
+                row.isAttraction ? 'bg-attraction/20 text-attraction' : 'bg-reversal/20 text-reversal',
+              )}
+            >
+              {row.netPct}%
+            </span>
+          )}
+          {row.isSpot && <span className="text-[9px] font-extrabold uppercase tracking-wide text-spot">Spot</span>}
+          {row.isFlip && !row.isSpot && <span className="text-[9px] font-extrabold uppercase tracking-wide text-spot">Flip</span>}
         </div>
       </td>
-      {row.values.map((v, i) => (
-        <td key={columns[i].date} className="px-1 py-1 text-center" style={cellStyle(v, maxCellAbs)}>
-          <span className={cn('font-mono text-[11px] tabular-nums', v === null || v === 0 ? 'text-muted-foreground/40' : 'text-foreground')}>
-            {v === null ? '·' : money(v)}
-          </span>
-        </td>
-      ))}
-      <td className="px-3 py-1">
+      {row.values.map((v, i) => {
+        const cell = cellVisual(v, maxCellAbs)
+        return (
+          <td key={columns[i].date} className="border-b border-border/60 px-1 py-1 text-center" style={cell.style}>
+            <span className={cn('font-mono tabular-nums', cell.cls)}>{v === null ? '·' : money(v)}</span>
+          </td>
+        )
+      })}
+      <td className="border-b border-border/60 px-3 py-1">
         <div className="flex items-center justify-end gap-2">
-          <span className={cn('font-mono text-[10px] font-medium tabular-nums', row.trendUp ? 'text-bull' : 'text-bear')}>
+          <span
+            className={cn(
+              'rounded px-1 font-mono text-[10px] font-bold tabular-nums',
+              row.trendUp ? 'bg-bull/15 text-bull' : 'bg-bear/15 text-bear',
+            )}
+          >
             {row.trendUp ? '▲' : '▼'}
             {row.trendPct}%
           </span>
-          <div className="relative h-3 w-16">
+          <div className="relative h-3.5 w-16">
             <div className="absolute left-1/2 top-0 h-full w-px bg-border" />
             <div
               className={cn('absolute top-0 h-full rounded-sm', row.net >= 0 ? 'bg-bull' : 'bg-bear')}
@@ -278,10 +358,21 @@ function HeatRow({
                 left: row.net >= 0 ? '50%' : undefined,
                 right: row.net < 0 ? '50%' : undefined,
                 width: `${(Math.abs(row.net) / maxNetAbs) * 48}%`,
+                boxShadow:
+                  Math.abs(row.net) / maxNetAbs > 0.5
+                    ? `0 0 8px color-mix(in oklch, var(${row.net >= 0 ? '--bull' : '--bear'}) 70%, transparent)`
+                    : undefined,
               }}
             />
           </div>
-          <span className="w-16 text-right font-mono text-[11px] tabular-nums text-muted-foreground">{money(row.net)}</span>
+          <span className="w-16 text-right font-mono text-[11.5px] font-bold tabular-nums text-foreground">{money(row.net)}</span>
+          {row.isSpot ? (
+            <span className="shrink-0 rounded bg-spot/20 px-1.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wide text-spot">
+              Spot
+            </span>
+          ) : (
+            <span className={cn('size-2 shrink-0 rounded-full', row.net >= 0 ? 'bg-bull' : 'bg-bear')} />
+          )}
         </div>
       </td>
     </tr>
@@ -323,7 +414,7 @@ function StrikeDetail({
       {(row.isSpot || row.isFlip || row.isReversal || row.isAttraction) && (
         <div className="flex flex-wrap gap-1.5">
           {row.isSpot && <Tag icon={Zap} cls="bg-spot/15 text-spot" label="Spot" />}
-          {row.isFlip && <Tag icon={Activity} cls="bg-spot/15 text-spot" label="Gamma Flip" />}
+          {row.isFlip && <Tag icon={Zap} cls="bg-spot/15 text-spot" label="Gamma Flip" />}
           {row.isReversal && <Tag icon={CornerUpLeft} cls="bg-reversal/15 text-reversal" label="Reversal risk" />}
           {row.isAttraction && <Tag icon={Star} cls="bg-attraction/15 text-attraction" label="Attraction" />}
         </div>
@@ -380,7 +471,7 @@ function StatsRow({ metrics, spot }: { metrics: import('@/lib/types').GexBoardMe
       <StatCard label="Put Wall" value={String(metrics.putWall)} sub={rel(metrics.putWall)} accent="bear" icon={CornerUpLeft} />
       <StatCard label="Attraction" value={String(metrics.callWall)} sub={rel(metrics.callWall)} accent="attraction" icon={Star} />
       <StatCard label="0DTE Attraction" value={String(metrics.zeroDte)} sub={rel(metrics.zeroDte)} accent="attraction" icon={Star} />
-      <StatCard label="Gamma Flip" value={String(metrics.gammaFlip)} sub={rel(metrics.gammaFlip)} accent="spot" icon={Activity} />
+      <StatCard label="Gamma Flip" value={String(metrics.gammaFlip)} sub={rel(metrics.gammaFlip)} accent="spot" icon={Zap} />
       <StatCard label="Grower" value={String(metrics.grower.strike)} sub={`+${metrics.grower.share}% of gamma`} accent="bull" icon={TrendingUp} />
       <StatCard label="Implied Move" value={`±${metrics.move}`} sub="today" icon={Waves} />
       <StatCard label="ATM IV" value={`${metrics.atmIv}%`} />
@@ -403,15 +494,21 @@ function StatCard({
 }) {
   const iconCls =
     accent === 'bull' ? 'text-bull' : accent === 'bear' ? 'text-bear' : accent === 'spot' ? 'text-spot' : accent === 'attraction' ? 'text-attraction' : ''
+  const barCls = accent === 'bull' ? 'bg-bull' : accent === 'bear' ? 'bg-bear' : accent === 'spot' ? 'bg-spot' : accent === 'attraction' ? 'bg-attraction' : 'bg-border'
   return (
-    <div className="flex flex-col gap-1 rounded-lg border border-border bg-card px-3 py-2.5">
-      <span className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-        {Icon && <Icon className={cn('size-2.5', iconCls)} />}
+    <div className="group relative flex flex-col gap-1 overflow-hidden rounded-lg border border-border bg-card px-3 py-2.5 transition-transform hover:-translate-y-0.5">
+      <span className={cn('absolute inset-x-0 top-0 h-1', barCls)} />
+      <span className="mt-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+        {Icon && (
+          <span className={cn('flex size-4 items-center justify-center rounded-full', accent ? `${barCls}/15` : 'bg-secondary')}>
+            <Icon className={cn('size-2.5', iconCls)} strokeWidth={2.5} />
+          </span>
+        )}
         {label}
       </span>
       <span
         className={cn(
-          'font-mono text-lg font-semibold tabular-nums leading-none',
+          'font-mono text-xl font-extrabold tabular-nums leading-none',
           accent === 'bull' && 'text-bull',
           accent === 'bear' && 'text-bear',
           accent === 'spot' && 'text-spot',
@@ -444,8 +541,8 @@ function SegmentedControl<T extends number>({
           aria-pressed={value === o.value}
           onClick={() => onChange(o.value)}
           className={cn(
-            'rounded px-2 py-1 text-[11px] font-medium whitespace-nowrap transition-colors',
-            value === o.value ? 'bg-background text-foreground shadow-sm' : 'text-text-muted hover:text-foreground',
+            'rounded px-2 py-1 text-[11px] font-bold whitespace-nowrap transition-colors',
+            value === o.value ? 'bg-primary/15 text-primary ring-1 ring-inset ring-primary/60' : 'text-text-muted hover:text-foreground',
           )}
         >
           {o.label}
