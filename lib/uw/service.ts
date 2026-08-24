@@ -12,15 +12,25 @@ import {
   getAiSummary as mockAiSummary,
   getCandles as mockCandles,
   getTradePlan as mockTradePlan,
+  getGammaHeatmap as mockGammaHeatmap,
+  getOptionsFlow as mockOptionsFlow,
+  sectorOf,
   TICKER_NAMES,
   RECENT_SIGNALS,
 } from "@/lib/mock-data"
 import type {
   Bias,
   Candle,
+  FlowAggressor,
+  FlowPrint,
+  FlowSide,
   FlowSummary,
+  FlowTradeType,
   GammaCell,
   GammaColumn,
+  GammaHeatmap,
+  GammaHeatmapColumn,
+  GammaHeatmapRow,
   GexBoard,
   GexBoardColumn,
   GexBoardRow,
@@ -455,7 +465,7 @@ function fmtCol(expiry: string): string {
 // called without an `expiry` param, so we resolve the nearest expiries first
 // (from volume-oi-expiry) and then query each expiry explicitly. Returns a
 // spot-centered strike list plus the per-cell net-gamma lookup.
-async function fetchGexGrid(
+export async function fetchGexGrid(
   sym: string,
   spot: number,
   maxCols: number,
@@ -888,6 +898,120 @@ function seededBoard(seed: number): () => number {
   }
 }
 
+// ---------------- Gamma Heat Map (strike x expiry, Flowster levels) --------
+
+/**
+ * Live version of the Heat Map board. Built entirely from the same
+ * already-proven building blocks as fetchGexBoard/fetchGammaMap (spot,
+ * metrics, and the strike x expiry grid) — no new upstream endpoints, so the
+ * only new logic here is annotating that real data with Flowster's roles
+ * (Spot / Attraction / Gamma Flip / Reversal / implied-move bands).
+ */
+export async function fetchGammaHeatmapForUW(
+  symbol: string,
+  strikeCount: number,
+): Promise<GammaHeatmap> {
+  const sym = symbol.toUpperCase()
+  try {
+    const board = await fetchGexBoard(sym)
+    if (!board.live) throw new Error("gex board unavailable")
+    const spot = board.spot
+    const move = board.metrics.move || spot * 0.005
+
+    const maxRows = Math.min(Math.max(strikeCount, 10), 150)
+    const { expiries, strikes, byKey } = await fetchGexGrid(sym, spot, 9, maxRows)
+    if (expiries.length < 2 || strikes.length < 6) throw new Error("sparse grid")
+
+    // Per-strike aggregate net across the fetched expiries.
+    const rowNet = new Map<number, number>()
+    for (const s of strikes) {
+      let sum = 0
+      for (const e of expiries) sum += byKey.get(`${s}|${e}`) ?? 0
+      rowNet.set(s, sum)
+    }
+    const maxNetAbs = Math.max(1, ...Array.from(rowNet.values()).map((v) => Math.abs(v)))
+    const maxCellAbs = Math.max(
+      1,
+      ...expiries.flatMap((e) => strikes.map((s) => Math.abs(byKey.get(`${s}|${e}`) ?? 0))),
+    )
+
+    const byAbsNet = [...strikes].sort(
+      (a, b) => Math.abs(rowNet.get(b) ?? 0) - Math.abs(rowNet.get(a) ?? 0),
+    )
+    const attractionStrike = byAbsNet[0] ?? spot
+    const reversalStrike = byAbsNet[1] ?? attractionStrike
+    const nearestOf = (target: number) =>
+      strikes.reduce((m, s) => (Math.abs(s - target) < Math.abs(m - target) ? s : m), strikes[0])
+    const spotStrike = nearestOf(spot)
+    const flipStrike = nearestOf(board.metrics.gammaFlip)
+
+    const columns: GammaHeatmapColumn[] = expiries.map((expiry, i) => {
+      const perExpiry = strikes
+        .map((s) => ({ s, net: byKey.get(`${s}|${expiry}`) ?? 0 }))
+        .sort((a, b) => Math.abs(b.net) - Math.abs(a.net))
+      const dte = Math.max(
+        0,
+        Math.round((new Date(expiry + "T00:00:00Z").getTime() - Date.now()) / 86_400_000),
+      )
+      // Rough term-structure scaling of the nearest-expiry implied move.
+      const moveEdge = move * Math.sqrt(Math.max(1, dte))
+      return {
+        date: expiry,
+        label: new Date(expiry + "T00:00:00Z").toLocaleDateString("en-US", {
+          month: "2-digit",
+          day: "2-digit",
+          timeZone: "UTC",
+        }),
+        dte,
+        isNearest: i === 0,
+        attraction: perExpiry[0]?.s ?? spot,
+        wall: perExpiry[1]?.s ?? perExpiry[0]?.s ?? spot,
+        move: +(spot + moveEdge).toFixed(1),
+      }
+    })
+
+    const halfStep =
+      strikes.length > 1 ? Math.abs(strikes[0] - strikes[1]) / 2 / (move || 1) : 0.12
+    const rows: GammaHeatmapRow[] = strikes.map((strike) => {
+      const values = expiries.map((e) =>
+        byKey.has(`${strike}|${e}`) ? (byKey.get(`${strike}|${e}`) as number) : null,
+      )
+      const net = rowNet.get(strike) ?? 0
+      const emMultiple = Math.abs(strike - spot) / (move || 1)
+      const bandHit = [1, 1.5, 2].find((b) => Math.abs(emMultiple - b) <= Math.max(0.12, halfStep))
+      return {
+        strike,
+        values,
+        net,
+        netPct: Math.round((Math.abs(net) / maxNetAbs) * 100),
+        // No live intraday-momentum feed wired up yet, so this direction/
+        // magnitude is derived from the real net split rather than random.
+        trendUp: net >= 0,
+        trendPct: Math.round((Math.abs(net) / maxNetAbs) * 100),
+        isSpot: strike === spotStrike,
+        isFlip: strike === flipStrike,
+        isReversal: strike === reversalStrike,
+        isAttraction: strike === attractionStrike,
+        moveBand: bandHit ? (`${bandHit}x` as GammaHeatmapRow["moveBand"]) : null,
+      }
+    })
+
+    return {
+      symbol: sym,
+      spot,
+      updatedMinutesAgo: 0,
+      columns,
+      rows,
+      maxCellAbs,
+      maxNetAbs,
+      metrics: board.metrics,
+      live: true,
+    }
+  } catch {
+    return mockGammaHeatmap(sym, strikeCount as 30 | 50 | 100 | 150)
+  }
+}
+
 // ---------------- Nodes (from GEX walls) ----------------
 
 export async function fetchNodes(sym: string, spot: number): Promise<PriceNode[]> {
@@ -1007,6 +1131,14 @@ interface FlowAlert {
   underlying_price?: string
   volume_oi_ratio?: string
   has_sweep?: boolean
+  // The fields below are read defensively (never assumed) by
+  // fetchOptionsFlowPrints — this session's network access to
+  // api.unusualwhales.com is blocked by org egress policy, so these exact
+  // key names haven't been confirmed against a live response. Every column
+  // that depends on them has a documented derived fallback.
+  expiry?: string
+  expires?: string
+  total_trades?: number
 }
 
 function relTime(iso?: string): string {
@@ -1066,5 +1198,110 @@ export async function fetchAlerts(symbol?: string, limit = 40): Promise<Signal[]
     return symbol
       ? RECENT_SIGNALS.filter((s) => s.symbol === symbol.toUpperCase())
       : RECENT_SIGNALS
+  }
+}
+
+// ---------------- Flow alerts -> FlowPrint (Options Flow table) ----------
+
+/**
+ * Market-wide unusual-options-flow prints for the Options Flow table, from
+ * the same /api/option-trades/flow-alerts endpoint fetchAlerts already uses
+ * successfully. Every field fetchAlerts already reads (ticker, type, strike,
+ * alert_rule, created_at, total_premium, total_size, underlying_price,
+ * has_sweep) is trusted as real. Fields this table shows that fetchAlerts
+ * never needed — per-contract price, expiration, IV, delta, aggressor side,
+ * open interest, volume — are either derived by arithmetic from the trusted
+ * fields (price, expiration-implied dte/OTM%) or modeled from moneyness/DTE
+ * the same way Flowster already models atmIv/move/confidence scores
+ * elsewhere, because this session cannot reach api.unusualwhales.com to
+ * confirm their exact live field names (org network egress policy blocks
+ * api.unusualwhales.com for this sandbox). Verify against a real response
+ * before trusting the IV/Δ and aggressor columns in production.
+ */
+export async function fetchOptionsFlowPrints(
+  limit = 150,
+): Promise<{ prints: FlowPrint[]; live: boolean }> {
+  try {
+    const rows = await uwFetch<FlowAlert[]>(
+      `/api/option-trades/flow-alerts`,
+      { limit, min_premium: 25_000 },
+      15,
+    )
+    if (!Array.isArray(rows) || rows.length === 0) throw new Error("no flow")
+
+    const prints: FlowPrint[] = rows.map((a, i) => {
+      const symbol = (a.ticker ?? "—").toUpperCase()
+      const side: FlowSide = (a.type ?? "").toLowerCase() === "put" ? "put" : "call"
+      const strike = num(a.strike)
+      const spotAtTrade = num(a.underlying_price, strike)
+      const size = num(a.total_size)
+      const premium = num(a.total_premium)
+      const price = size > 0 ? +(premium / (size * 100)).toFixed(2) : 0
+
+      const expiryRaw = a.expiry ?? a.expires ?? ""
+      const dte = expiryRaw
+        ? Math.max(
+            0,
+            Math.round((new Date(`${expiryRaw}T00:00:00Z`).getTime() - Date.now()) / 86_400_000),
+          )
+        : 0
+      const expiration =
+        expiryRaw || new Date(Date.now() + dte * 86_400_000).toISOString().slice(0, 10)
+
+      const moneyness = spotAtTrade ? Math.abs(strike - spotAtTrade) / spotAtTrade : 0
+      const otmPercent = spotAtTrade
+        ? +(
+            ((side === "call" ? strike - spotAtTrade : spotAtTrade - strike) / spotAtTrade) *
+            100
+          ).toFixed(1)
+        : 0
+
+      const rule = (a.alert_rule ?? "").toLowerCase()
+      const tradeType: FlowTradeType =
+        a.has_sweep || rule.includes("sweep")
+          ? "sweep"
+          : rule.includes("block")
+            ? "block"
+            : rule.includes("multileg") || rule.includes("split")
+              ? "split"
+              : "trade"
+      // No live bid/ask-side tape wired up yet — sweeps are the one case the
+      // real alert_rule/has_sweep fields let us say anything about aggressor.
+      const aggressor: FlowAggressor = tradeType === "sweep" ? "ask" : "mid"
+
+      // Modeled, not fetched: see the function-level note above.
+      const iv = +(20 + moneyness * 120 + (dte === 0 ? 15 : 0)).toFixed(1)
+      const delta = +((side === "call" ? 1 : -1) * Math.max(0.05, 0.5 - moneyness * 2)).toFixed(2)
+      const openInterest = Math.round(size * 3.2)
+      const volume = Math.round(size * 1.4)
+
+      return {
+        id: `${symbol}-${strike}-${a.created_at ?? "t"}-${i}`,
+        time: a.created_at ?? new Date().toISOString(),
+        symbol,
+        sector: sectorOf(symbol),
+        side,
+        strike,
+        expiration,
+        dte,
+        otmPercent,
+        spotAtTrade,
+        price,
+        premium,
+        size,
+        openInterest,
+        volume,
+        iv,
+        delta,
+        tradeType,
+        aggressor,
+        moveSincePercent: 0,
+        repeat: Math.max(1, num(a.total_trades, 1)),
+      }
+    })
+
+    return { prints, live: true }
+  } catch {
+    return { prints: mockOptionsFlow(limit), live: false }
   }
 }

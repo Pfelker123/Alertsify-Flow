@@ -2,7 +2,7 @@
 
 import useSWR from "swr"
 import type { InstrumentData } from "@/lib/uw/service"
-import type { Candle, GexBoard, Signal, Ticker, Timeframe } from "@/lib/types"
+import type { Candle, FlowPrint, GammaHeatmap, GexBoard, Signal, Ticker, Timeframe } from "@/lib/types"
 import type { DataEnvelope } from "@/lib/market/types"
 import type { AnalyticsPayload } from "@/app/api/uw/analytics/[symbol]/route"
 
@@ -148,4 +148,34 @@ export function useGexBoard(symbol: string, autoUpdate = true) {
     },
   )
   return { board: data, error, isLoading }
+}
+
+const HEATMAP_MS = 30_000
+
+export function useGammaHeatmap(symbol: string, strikeCount: number, autoUpdate = true) {
+  const { data, error, isLoading } = useSWR<GammaHeatmap>(
+    symbol ? `/api/uw/gamma-heatmap?symbol=${encodeURIComponent(symbol)}&strikes=${strikeCount}` : null,
+    fetcher,
+    {
+      refreshInterval: autoUpdate ? HEATMAP_MS : 0,
+      keepPreviousData: true,
+      revalidateOnFocus: false,
+    },
+  )
+  return { board: data, error, isLoading }
+}
+
+const FLOW_MS = 20_000
+
+export function useOptionsFlow(limit = 150, autoUpdate = true) {
+  const { data, error, isLoading } = useSWR<{ prints: FlowPrint[]; live: boolean }>(
+    `/api/uw/flow?limit=${limit}`,
+    fetcher,
+    {
+      refreshInterval: autoUpdate ? FLOW_MS : 0,
+      keepPreviousData: true,
+      revalidateOnFocus: false,
+    },
+  )
+  return { prints: data?.prints, live: data?.live ?? false, error, isLoading }
 }

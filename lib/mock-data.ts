@@ -952,5 +952,6 @@ export function getGammaHeatmap(symbol: string, strikeCount: HeatmapStrikeCount 
     maxCellAbs,
     maxNetAbs,
     metrics,
+    live: false,
   }
 }

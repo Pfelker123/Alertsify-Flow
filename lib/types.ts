@@ -258,4 +258,5 @@ export interface GammaHeatmap {
   maxCellAbs: number // for cell color scaling
   maxNetAbs: number // for net bar scaling
   metrics: GexBoardMetrics
+  live: boolean
 }

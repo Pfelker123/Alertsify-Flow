@@ -1,9 +1,11 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Star, Zap, Waves, CornerUpLeft, Activity, TrendingUp, ArrowLeftRight, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { FLOW_UNIVERSE, HEATMAP_STRIKE_COUNTS, getGammaHeatmap, type HeatmapStrikeCount } from '@/lib/mock-data'
+import { FLOW_UNIVERSE, HEATMAP_STRIKE_COUNTS, type HeatmapStrikeCount } from '@/lib/mock-data'
+import { useGammaHeatmap } from '@/lib/uw/hooks'
+import { DataSourceBadge } from '@/components/data-source-badge'
 import type { GammaHeatmapRow } from '@/lib/types'
 import {
   Select,
@@ -46,9 +48,7 @@ export function GammaHeatmap() {
   const [strikeCount, setStrikeCount] = useState<HeatmapStrikeCount>(50)
   const [selected, setSelected] = useState<number | null>(null)
 
-  const board = useMemo(() => getGammaHeatmap(symbol, strikeCount), [symbol, strikeCount])
-  const { columns, rows, maxCellAbs, maxNetAbs, metrics, spot } = board
-  const selectedRow = selected !== null ? rows.find((r) => r.strike === selected) ?? null : null
+  const { board, isLoading } = useGammaHeatmap(symbol, strikeCount)
 
   // Center the board on the spot row whenever the symbol/strike-count changes,
   // so the very first thing visible is price with context above and below it.
@@ -61,6 +61,17 @@ export function GammaHeatmap() {
       el.scrollTop = Math.max(0, priceEl.offsetTop - el.clientHeight / 2 + priceEl.clientHeight / 2)
     }
   }, [board])
+
+  if (!board) {
+    return (
+      <div className="flex h-64 items-center justify-center rounded-xl border border-border bg-card text-sm text-muted-foreground">
+        {isLoading ? 'Loading gamma heat map…' : 'No gamma data available.'}
+      </div>
+    )
+  }
+
+  const { columns, rows, maxCellAbs, maxNetAbs, metrics, spot } = board
+  const selectedRow = selected !== null ? rows.find((r) => r.strike === selected) ?? null : null
 
   return (
     <div className="flex flex-col gap-3">
@@ -93,6 +104,11 @@ export function GammaHeatmap() {
         >
           {metrics.regime === 'positive' ? 'Positive Gamma' : 'Negative Gamma'}
         </span>
+
+        <DataSourceBadge
+          meta={{ source: board.live ? 'live' : 'demo', fetchedAt: new Date().toISOString() }}
+          showAge={false}
+        />
 
         <span className="ml-auto flex items-center gap-1 font-mono text-[11px] text-text-muted">
           Net GEX · {fmtDate(columns[0].date)}

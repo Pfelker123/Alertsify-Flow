@@ -1,9 +1,11 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Search, SlidersHorizontal, RotateCcw } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { FLOW_SECTORS, getOptionsFlow, makeLiveFlowPrint } from '@/lib/mock-data'
+import { FLOW_SECTORS, makeLiveFlowPrint } from '@/lib/mock-data'
+import { useOptionsFlow } from '@/lib/uw/hooks'
+import { DataSourceBadge } from '@/components/data-source-badge'
 import type { FlowAggressor, FlowPrint, FlowTradeType } from '@/lib/types'
 import {
   Select,
@@ -95,10 +97,10 @@ interface Props {
 }
 
 export function OptionsFlowTable({ className }: Props) {
-  const [seed] = useState(() => getOptionsFlow(160))
-  const [prints, setPrints] = useState<FlowPrint[]>(seed)
   const [streaming, setStreaming] = useState(true)
   const [flashId, setFlashId] = useState<string | null>(null)
+  const [prints, setPrints] = useState<FlowPrint[]>([])
+  const initialized = useRef(false)
 
   const [side, setSide] = useState<SideFilter>('all')
   const [size, setSize] = useState<SizePreset>(0)
@@ -107,17 +109,45 @@ export function OptionsFlowTable({ className }: Props) {
   const [sector, setSector] = useState<string>('all')
   const [shortDatedOtm, setShortDatedOtm] = useState(false)
 
-  // Simulated live tape: prepend a fresh print on an interval.
+  const { prints: serverPrints, live, isLoading } = useOptionsFlow(200, streaming)
+
+  function flash(id: string) {
+    setFlashId(id)
+    window.setTimeout(() => setFlashId((cur) => (cur === id ? null : cur)), 1200)
+  }
+
+  // Merge each server poll in: on live data, genuinely new prints (by id) are
+  // prepended so the table reflects the real feed. On the demo fallback the
+  // server regenerates the same seeded batch every poll, so only the first
+  // response seeds the table — the synthetic tape below carries it from there.
   useEffect(() => {
-    if (!streaming) return
+    if (!serverPrints) return
+    if (!initialized.current) {
+      initialized.current = true
+      setPrints(serverPrints.slice(0, MAX_ROWS))
+      return
+    }
+    if (!live) return
+    setPrints((prev) => {
+      const prevIds = new Set(prev.map((p) => p.id))
+      const fresh = serverPrints.filter((p) => !prevIds.has(p.id))
+      if (fresh.length === 0) return prev
+      flash(fresh[0].id)
+      return [...fresh, ...prev].slice(0, MAX_ROWS)
+    })
+  }, [serverPrints, live])
+
+  // Demo-only simulated tape: prepend a fresh synthetic print on an interval
+  // so the demo still feels alive. Never runs once real live data is flowing.
+  useEffect(() => {
+    if (!streaming || live) return
     const id = window.setInterval(() => {
       const next = makeLiveFlowPrint()
       setPrints((prev) => [next, ...prev].slice(0, MAX_ROWS))
-      setFlashId(next.id)
-      window.setTimeout(() => setFlashId((cur) => (cur === next.id ? null : cur)), 1200)
+      flash(next.id)
     }, STREAM_MS)
     return () => window.clearInterval(id)
-  }, [streaming])
+  }, [streaming, live])
 
   const filtered = useMemo(() => {
     let out = prints
@@ -157,6 +187,14 @@ export function OptionsFlowTable({ className }: Props) {
     [filtered],
   )
 
+  if (prints.length === 0) {
+    return (
+      <div className={cn('flex h-64 items-center justify-center rounded-xl border border-border bg-card text-sm text-muted-foreground', className)}>
+        {isLoading ? 'Loading options flow…' : 'No flow prints available.'}
+      </div>
+    )
+  }
+
   const activeFilterCount =
     (side !== 'all' ? 1 : 0) + (size > 0 ? 1 : 0) + (sector !== 'all' ? 1 : 0) + (shortDatedOtm ? 1 : 0) + (query ? 1 : 0)
 
@@ -194,6 +232,10 @@ export function OptionsFlowTable({ className }: Props) {
               </span>
               {streaming ? 'Streaming' : 'Paused'}
             </button>
+            <DataSourceBadge
+              meta={{ source: live ? 'live' : 'demo', fetchedAt: new Date().toISOString() }}
+              showAge={false}
+            />
           </div>
           <span className="font-mono text-[11px] text-text-muted">
             {prints.length.toLocaleString()} prints in window
@@ -384,11 +426,18 @@ export function OptionsFlowTable({ className }: Props) {
                     {compact(p.size)}
                     {p.repeat > 1 && <span className="ml-1 text-[10px] text-text-muted">×{p.repeat}</span>}
                   </td>
-                  <td className={cn('px-2 py-1.5 text-right font-mono text-[11px] tabular-nums', moveUp ? 'text-bull' : 'text-bear')}>
-                    {moveUp ? '+' : ''}
-                    {p.moveSincePercent.toFixed(1)}%
+                  <td
+                    className={cn(
+                      'px-2 py-1.5 text-right font-mono text-[11px] tabular-nums',
+                      p.moveSincePercent === 0 ? 'text-muted-foreground/40' : moveUp ? 'text-bull' : 'text-bear',
+                    )}
+                  >
+                    {p.moveSincePercent === 0 ? '—' : `${moveUp ? '+' : ''}${p.moveSincePercent.toFixed(1)}%`}
                   </td>
-                  <td className="px-2 py-1.5 text-right font-mono text-[11px] tabular-nums text-muted-foreground">
+                  <td
+                    className="px-2 py-1.5 text-right font-mono text-[11px] tabular-nums text-muted-foreground"
+                    title={live ? 'Estimated from moneyness/DTE — not yet read from the live feed' : undefined}
+                  >
                     {p.iv.toFixed(0)}% / {p.delta.toFixed(2)}
                   </td>
                   <td className="px-3 py-1.5">
