@@ -1,8 +1,8 @@
 import { cn } from '@/lib/utils'
 
 /**
- * Flowsters wave mark — one continuous wave that rises like price and resolves
- * onto a solid node (the key level). Rendered on the brand gradient squircle.
+ * Alertsify mark — an alert bell with signal/flow waves ringing out either
+ * side, on the brand gradient squircle. Alert (the bell) + Flow (the waves).
  */
 export function FlowstersMark({ className }: { className?: string }) {
   return (
@@ -22,11 +22,13 @@ export function FlowstersMark({ className }: { className?: string }) {
         strokeLinecap="round"
         strokeLinejoin="round"
       >
-        {/* rising wave */}
-        <path d="M6 27 C 11 27, 12 15, 17 15 C 21 15, 22 23, 26 23" />
-        {/* resolve into the node */}
-        <path d="M26 23 C 29 23, 30 16, 33 14" />
-        <circle cx="33.5" cy="13.5" r="2.6" fill="#fff" stroke="none" />
+        {/* bell */}
+        <path d="M11 24 C11 14 13 6 20 6 C27 6 29 14 29 24" />
+        {/* signal / flow waves ringing out */}
+        <path d="M33 13 C36 16, 36 20, 33 23" />
+        <path d="M7 13 C4 16, 4 20, 7 23" />
+        {/* clapper */}
+        <circle cx="20" cy="29" r="2.2" fill="#fff" stroke="none" />
       </svg>
     </span>
   )
