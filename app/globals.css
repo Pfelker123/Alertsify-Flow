@@ -55,9 +55,8 @@
   --color-continuation: var(--bull);
   --color-neutral: var(--neutral);
 
-  /* Flowsters brand */
+  /* Alertsify brand */
   --color-brand-blue: var(--brand-blue);
-  --color-brand-magenta: var(--brand-magenta);
   --color-brand-green: var(--brand-green);
   --color-elevated: var(--elevated);
   --color-border-strong: var(--border-strong);
@@ -106,7 +105,6 @@
 
   /* Brand */
   --brand-blue: #4d7cff;
-  --brand-magenta: #b558ff;
   --brand-green: #12e8a0;
   --elevated: #151b22;
   --border-strong: rgba(255, 255, 255, 0.14);
@@ -155,19 +153,19 @@
   }
 }
 
-/* Signal Blue -> Flow Magenta brand gradient */
+/* Signal Blue -> Flow Green brand gradient */
 @utility bg-brand-gradient {
   background-image: linear-gradient(
     135deg,
     var(--brand-blue) 0%,
-    var(--brand-magenta) 100%
+    var(--brand-green) 100%
   );
 }
 @utility text-brand-gradient {
   background-image: linear-gradient(
     135deg,
     var(--brand-blue) 0%,
-    var(--brand-magenta) 100%
+    var(--brand-green) 100%
   );
   -webkit-background-clip: text;
   background-clip: text;
