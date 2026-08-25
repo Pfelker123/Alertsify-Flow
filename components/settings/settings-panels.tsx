@@ -114,7 +114,7 @@ export function SettingsPanels() {
       <Card className="p-5">
         <h2 className="font-semibold">Data Source</h2>
         <p className="text-xs text-muted-foreground">
-          FLOWSTERS is running on sample data. Connect a live market and
+          Alertsify Flow is running on sample data. Connect a live market and
           options provider to stream real prices and flow.
         </p>
         <Separator className="my-2" />

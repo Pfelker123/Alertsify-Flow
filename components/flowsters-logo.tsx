@@ -32,7 +32,7 @@ export function FlowstersMark({ className }: { className?: string }) {
   )
 }
 
-/** Horizontal lockup: mark + FLOWSTERS wordmark. */
+/** Horizontal lockup: mark + Alertsify Flow wordmark. */
 export function FlowstersLogo({
   className,
   markClassName,
@@ -46,8 +46,9 @@ export function FlowstersLogo({
     <div className={cn('flex items-center gap-2.5', className)}>
       <FlowstersMark className={cn('size-8', markClassName)} />
       {showWordmark && (
-        <span className="text-[17px] font-bold tracking-[0.14em] text-foreground">
-          FLOWSTERS
+        <span className="flex flex-col leading-none">
+          <span className="text-[13.5px] font-extrabold tracking-[0.05em] text-foreground">ALERTSIFY</span>
+          <span className="text-[10.5px] font-semibold tracking-[0.28em] text-spot">FLOW</span>
         </span>
       )}
     </div>

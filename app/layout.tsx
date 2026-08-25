@@ -11,7 +11,7 @@ const geistMono = Geist_Mono({
 })
 
 export const metadata: Metadata = {
-  title: 'FLOWSTERS — Gamma & Options Flow Dashboard',
+  title: 'Alertsify Flow — Gamma & Options Flow Dashboard',
   description:
     'Beginner-friendly gamma and options flow dashboard. Clear buying zones, selling zones, attraction nodes, and reversal levels with plain-English AI explanations.',
   generator: 'v0.app',

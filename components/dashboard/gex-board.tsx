@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Star, Zap, Activity, TrendingUp, ArrowDown } from 'lucide-react'
+import { Star, Zap, TrendingUp, ArrowDown } from 'lucide-react'
 import { useFilters } from '@/components/filters-context'
 import { useGexBoard } from '@/lib/uw/hooks'
 import { cn } from '@/lib/utils'
@@ -15,11 +15,11 @@ const ROLE_STYLE: Record<
   StrikeRole,
   { label: string; icon: typeof Star; text: string; rowBg: string; dashed?: boolean }
 > = {
-  spot: { label: 'Spot', icon: Zap, text: 'text-spot', rowBg: 'bg-spot/10' },
-  flip: { label: 'Gamma Flip', icon: Activity, text: 'text-spot', rowBg: 'bg-spot/5', dashed: true },
-  attraction: { label: 'Attraction', icon: Star, text: 'text-attraction', rowBg: 'bg-attraction/10' },
-  putWall: { label: 'Put Wall', icon: ArrowDown, text: 'text-bear', rowBg: 'bg-bear/10' },
-  grower: { label: 'Grower', icon: TrendingUp, text: 'text-bull', rowBg: 'bg-bull/10' },
+  spot: { label: 'Spot', icon: Zap, text: 'text-spot', rowBg: 'bg-spot/25' },
+  flip: { label: 'Gamma Flip', icon: Zap, text: 'text-spot', rowBg: 'bg-spot/10', dashed: true },
+  attraction: { label: 'Attraction', icon: Star, text: 'text-attraction', rowBg: 'bg-attraction/25' },
+  putWall: { label: 'Put Wall', icon: ArrowDown, text: 'text-bear', rowBg: 'bg-bear/25' },
+  grower: { label: 'Grower', icon: TrendingUp, text: 'text-bull', rowBg: 'bg-bull/25' },
 }
 
 // Priority when a strike could match more than one role (spot wins, etc).
@@ -48,15 +48,28 @@ function money(v: number | null): string {
   return `${sign}$${abs.toFixed(0)}`
 }
 
-// Cell background scaled by magnitude, green for positive / red for negative GEX.
-function cellStyle(v: number | null, max: number) {
-  if (v === null || v === 0) return undefined
-  const a = Math.min(1, Math.abs(v) / max)
+// Same treatment as the Heat Map board: real cells get a soft glowing bar
+// (bull green / bear red, fading toward its own edges) with bright bold
+// text, so the two strike x expiry boards read as one consistent system
+// instead of the Flow Map looking flat next to the Heat Map.
+function cellVisual(v: number | null, max: number) {
+  if (v === null || v === 0) {
+    return { style: undefined, cls: 'text-muted-foreground/30 font-normal' }
+  }
+  const abs = Math.abs(v)
+  const trivial = abs < Math.max(max * 0.004, 15_000)
+  if (trivial) {
+    return { style: undefined, cls: 'text-foreground/45 font-normal' }
+  }
   const token = v > 0 ? '--bull' : '--bear'
+  const huge = abs >= max * 0.55
+  const core = huge ? 68 : 42
   return {
-    backgroundColor: `color-mix(in oklch, var(${token}) ${Math.round(
-      a * 70 + 8,
-    )}%, transparent)`,
+    style: {
+      backgroundImage: `linear-gradient(90deg, transparent 0%, color-mix(in oklch, var(${token}) ${core}%, black) 28%, color-mix(in oklch, var(${token}) ${core}%, black) 72%, transparent 100%)`,
+      ...(huge ? { boxShadow: `0 0 16px -4px color-mix(in oklch, var(${token}) 70%, transparent)` } : {}),
+    },
+    cls: huge ? 'text-[12px] font-extrabold text-white' : 'text-[11.5px] font-bold text-white',
   }
 }
 
@@ -405,24 +418,16 @@ export function GexBoard() {
                     row.strike
                   )}
                 </td>
-                {row.values.map((v, i) => (
-                  <td
-                    key={i}
-                    className="px-1 py-1 text-center"
-                    style={cellStyle(v, maxCellAbs)}
-                  >
-                    <span
-                      className={cn(
-                        'font-mono text-[11px] tabular-nums',
-                        v === null || v === 0
-                          ? 'text-muted-foreground/40'
-                          : 'text-foreground',
-                      )}
-                    >
-                      {v === null ? '·' : money(v)}
-                    </span>
-                  </td>
-                ))}
+                {row.values.map((v, i) => {
+                  const cell = cellVisual(v, maxCellAbs)
+                  return (
+                    <td key={i} className="px-1 py-1 text-center" style={cell.style}>
+                      <span className={cn('font-mono tabular-nums', cell.cls)}>
+                        {v === null ? '·' : money(v)}
+                      </span>
+                    </td>
+                  )
+                })}
                 {/* Net GEX bar */}
                 <td className="px-3 py-1.5">
                   <div className="flex items-center justify-end gap-2">

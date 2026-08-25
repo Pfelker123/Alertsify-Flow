@@ -15,7 +15,7 @@ export function AiInsight() {
       <div className="flex items-center gap-2">
         <Brain className="size-4 text-primary" />
         <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          Flowsters AI Insight
+          Alertsify Flow AI Insight
         </h3>
       </div>
       <p className="mt-3 text-sm leading-relaxed text-foreground">{text}</p>

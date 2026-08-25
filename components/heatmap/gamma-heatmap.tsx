@@ -44,12 +44,12 @@ function opexInfo(iso: string): { quarterly: boolean } | null {
   return { quarterly }
 }
 
-// Voltick-style board: real cells get a bold, near-solid fill (bull green /
-// bear red) with bright white text — a checkerboard of hot/cold blocks you
-// can read from across the room, not a subtle per-cell gradient. Only true
-// noise (sub-$1K, or a rounding-error sliver of the board's scale) recedes
-// to dim ink on bare background. The biggest strikes get one step brighter
-// plus a glow so they still stand out from the rest of the solid fill.
+// Each real cell is a soft glowing bar (fades in/out toward its own edges)
+// rather than a flat rectangle with a hard border — that's what actually
+// reads as "blended" instead of a checkerboard. Bull green / bear red,
+// bright text throughout. Only true noise (a rounding-error sliver of the
+// board's scale) recedes to dim ink on bare background; the biggest strikes
+// get a richer core plus a glow so they still lead the eye.
 function cellVisual(v: number | null, max: number) {
   if (v === null || v === 0) {
     return { style: undefined, cls: 'text-muted-foreground/30 font-normal' }
@@ -64,10 +64,11 @@ function cellVisual(v: number | null, max: number) {
   }
   const token = v > 0 ? '--bull' : '--bear'
   const huge = abs >= max * 0.55
+  const core = huge ? 68 : 42
   return {
     style: {
-      backgroundColor: `color-mix(in oklch, var(${token}) ${huge ? 82 : 58}%, black)`,
-      ...(huge ? { boxShadow: `0 0 14px -2px color-mix(in oklch, var(${token}) 75%, transparent)` } : {}),
+      backgroundImage: `linear-gradient(90deg, transparent 0%, color-mix(in oklch, var(${token}) ${core}%, black) 28%, color-mix(in oklch, var(${token}) ${core}%, black) 72%, transparent 100%)`,
+      ...(huge ? { boxShadow: `0 0 16px -4px color-mix(in oklch, var(${token}) 70%, transparent)` } : {}),
     },
     cls: huge ? 'text-[12px] font-extrabold text-white' : 'text-[11.5px] font-bold text-white',
   }
@@ -105,6 +106,8 @@ export function GammaHeatmap() {
 
   return (
     <div className="flex flex-col gap-3">
+      <InsightBanner metrics={metrics} spot={spot} />
+
       {/* Header controls */}
       <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card p-2.5">
         <Select value={symbol} onValueChange={(v) => { setSymbol(v ?? 'SPY'); setSelected(null) }}>
@@ -240,6 +243,36 @@ function HeaderStat({ icon: Icon, cls, value }: { icon: typeof Star; cls: string
   )
 }
 
+// Plain-English read of the board, built from the same metrics driving the
+// bottom KPI cards — not a separate/invented narrative.
+function InsightBanner({ metrics, spot }: { metrics: import('@/lib/types').GexBoardMetrics; spot: number }) {
+  const above = spot >= metrics.gammaFlip
+  const side = metrics.regime === 'positive' ? 'sticky' : 'slippery'
+  return (
+    <div className="flex flex-col gap-2 rounded-xl border border-border bg-card px-4 py-3">
+      <p className="text-[13px] leading-relaxed text-foreground/90">
+        <span className="mr-1.5 inline-flex items-center gap-1 font-extrabold text-spot">
+          <Zap className="size-3.5" strokeWidth={2.5} fill="currentColor" />
+          Flip
+        </span>
+        Price is {above ? 'above' : 'below'} the flip (${metrics.gammaFlip}), the {side} side.{' '}
+        {above
+          ? 'Below that line, hedging turns to chasing moves and price travels through levels more easily.'
+          : 'Above that line, hedging turns supportive and price meets more resistance to fast moves.'}
+      </p>
+      <p className="text-[13px] leading-relaxed text-foreground/90">
+        <span className="mr-1.5 inline-flex items-center gap-1 font-extrabold text-attraction">
+          <Star className="size-3.5" strokeWidth={2} fill="currentColor" />
+          Surge
+        </span>
+        Today&apos;s flow piles up at <span className="font-bold text-foreground">{metrics.grower.strike}</span> (
+        {metrics.grower.share}% of gamma); opposite flow stacks near{' '}
+        <span className="font-bold text-foreground">{metrics.putWall}</span>.
+      </p>
+    </div>
+  )
+}
+
 function LegendItem({ cls, label }: { cls: string; label: string }) {
   return (
     <div className="flex items-center gap-1.5">
@@ -284,7 +317,7 @@ function HeatRow({
     >
       <td
         className={cn(
-          'sticky left-0 z-10 border-b border-border/60 px-3 py-1 font-mono text-[12px] tabular-nums',
+          'sticky left-0 z-10 border-b border-border/10 px-3 py-1 font-mono text-[12px] tabular-nums',
           selected ? 'bg-primary/15' : roleCls ? roleCls.split(' ')[0] : 'bg-card',
         )}
       >
@@ -334,12 +367,12 @@ function HeatRow({
       {row.values.map((v, i) => {
         const cell = cellVisual(v, maxCellAbs)
         return (
-          <td key={columns[i].date} className="border-b border-border/60 px-1 py-1 text-center" style={cell.style}>
+          <td key={columns[i].date} className="border-b border-border/10 px-1 py-1 text-center" style={cell.style}>
             <span className={cn('font-mono tabular-nums', cell.cls)}>{v === null ? '·' : money(v)}</span>
           </td>
         )
       })}
-      <td className="border-b border-border/60 px-3 py-1">
+      <td className="border-b border-border/10 px-3 py-1">
         <div className="flex items-center justify-end gap-2">
           <span
             className={cn(

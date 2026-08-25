@@ -74,7 +74,7 @@ const TERMS: Term[] = [
     term: 'Attraction',
     short: 'A level price is magnetically drawn toward.',
     detail:
-      'In FLOWSTERS, an attraction node marks a high-gamma strike that tends to pull price toward it and pin around it.',
+      'In Alertsify Flow, an attraction node marks a high-gamma strike that tends to pull price toward it and pin around it.',
     example: 'Price hovering just under an attraction node often drifts up to tag it.',
     tags: ['node', 'levels'],
   },
@@ -159,7 +159,7 @@ export function Glossary() {
       <p className="rounded-xl border border-border bg-card px-4 py-3 text-[12px] leading-relaxed text-muted-foreground">
         <span className="font-medium text-foreground">Data methodology & limitations: </span>
         Gamma, walls, and levels are estimates derived from options positioning and
-        can be stale, incomplete, or revised as new data arrives. FLOWSTERS is an
+        can be stale, incomplete, or revised as new data arrives. Alertsify Flow is an
         educational analytics tool, not investment advice, and nothing here
         guarantees future results.
       </p>

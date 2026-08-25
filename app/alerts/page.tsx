@@ -7,7 +7,7 @@ export default function AlertsPage() {
     <div className="mx-auto max-w-7xl space-y-6 p-4 md:p-6">
       <PageHeader
         title="Alerts"
-        description="Every signal FLOWSTERS has fired today. Filter by buy, sell, reversal, or continuation to focus on the setups you trade."
+        description="Every signal Alertsify Flow has fired today. Filter by buy, sell, reversal, or continuation to focus on the setups you trade."
       >
         <ColorLegend />
       </PageHeader>

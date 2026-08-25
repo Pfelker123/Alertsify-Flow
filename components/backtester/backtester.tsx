@@ -266,7 +266,7 @@ export function Backtester() {
             </h3>
             <p className="mt-1.5 max-w-md text-[12px] leading-relaxed text-muted-foreground">
               {attempted
-                ? 'Your strategy definition is captured, but this prototype has no historical execution engine wired in yet. Rather than show invented performance, FLOWSTERS leaves these metrics empty until a verified result payload is available.'
+                ? 'Your strategy definition is captured, but this prototype has no historical execution engine wired in yet. Rather than show invented performance, Alertsify Flow leaves these metrics empty until a verified result payload is available.'
                 : 'Define a strategy on the left and run it. Equity curve, drawdown, and the trade table will populate here only from a real result payload.'}
             </p>
           </div>
