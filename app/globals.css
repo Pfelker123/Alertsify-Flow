@@ -58,6 +58,7 @@
   /* Flowsters brand */
   --color-brand-blue: var(--brand-blue);
   --color-brand-magenta: var(--brand-magenta);
+  --color-brand-green: var(--brand-green);
   --color-elevated: var(--elevated);
   --color-border-strong: var(--border-strong);
   --color-text-muted: var(--text-muted);
@@ -106,6 +107,7 @@
   /* Brand */
   --brand-blue: #4d7cff;
   --brand-magenta: #b558ff;
+  --brand-green: #12e8a0;
   --elevated: #151b22;
   --border-strong: rgba(255, 255, 255, 0.14);
   --text-muted: #68717c;
