@@ -190,11 +190,11 @@ export function GammaHeatmap() {
 
       <div className={cn('grid gap-3', selectedRow ? 'xl:grid-cols-[minmax(0,1fr)_280px]' : 'grid-cols-1')}>
         {/* Board */}
-        <div ref={scrollRef} className="thin-scroll max-h-[640px] overflow-auto rounded-xl border border-border bg-card">
+        <div ref={scrollRef} className="thin-scroll max-h-[640px] overflow-auto rounded-xl border border-border bg-black">
           <table className="w-full min-w-[980px] border-collapse">
             <thead>
               <tr className="border-b border-border">
-                <th className="sticky left-0 top-0 z-30 bg-card px-3 py-2 text-left text-[11px] font-medium text-muted-foreground">
+                <th className="sticky left-0 top-0 z-30 bg-black px-3 py-2 text-left text-[11px] font-medium text-muted-foreground">
                   Strike
                 </th>
                 {columns.map((c) => {
@@ -204,11 +204,11 @@ export function GammaHeatmap() {
                       key={c.date}
                       className={cn(
                         'sticky top-0 z-20 px-2 py-1.5 text-center align-top',
-                        c.isNearest ? 'rounded-t-md ring-1 ring-inset ring-primary/60' : 'bg-card',
+                        c.isNearest ? 'rounded-t-md ring-1 ring-inset ring-primary/60' : 'bg-black',
                       )}
                       style={
                         c.isNearest
-                          ? { backgroundColor: 'color-mix(in oklch, var(--primary) 14%, var(--card))' }
+                          ? { backgroundColor: 'color-mix(in oklch, var(--primary) 18%, black)' }
                           : undefined
                       }
                     >
@@ -238,7 +238,7 @@ export function GammaHeatmap() {
                     </th>
                   )
                 })}
-                <th className="sticky top-0 z-20 bg-card px-3 py-2 text-right text-[11px] font-medium text-muted-foreground">Net GEX</th>
+                <th className="sticky top-0 z-20 bg-black px-3 py-2 text-right text-[11px] font-medium text-muted-foreground">Net GEX</th>
               </tr>
             </thead>
             <tbody>
@@ -268,8 +268,7 @@ export function GammaHeatmap() {
         <LegendItem cls="bg-bear" label="Negative gamma (fuel)" />
         <LegendItem cls="bg-spot" label="Spot" />
         <LegendItem cls="bg-attraction" label="Attraction" />
-        <LegendItem cls="bg-bull" label="Reversal risk · buying" />
-        <LegendItem cls="bg-bear" label="Reversal risk · selling" />
+        <LegendItem cls="bg-reversal" label="Reversal risk" />
         <span className="ml-auto text-[10px] text-text-muted">1x / 1.5x / 2x = implied-move bands from spot</span>
       </div>
 
@@ -357,18 +356,12 @@ function HeatRow({
       }
     })
   }
-  // Reversal risk isn't one color — it's whichever side is dominant at that
-  // strike: net GEX >= 0 reads as buying/support building, < 0 as selling
-  // pressure, the same sign the net badge and bar already use below.
-  const buying = row.net >= 0
-  const peakToken = row.isAttraction ? '--attraction' : row.isReversal ? (buying ? '--bull' : '--bear') : '--spot'
+  const peakToken = row.isAttraction ? '--attraction' : row.isReversal ? '--reversal' : '--spot'
 
   const roleCls = row.isSpot
     ? 'bg-spot/25 text-spot'
     : row.isReversal
-      ? buying
-        ? 'bg-bull/25 text-bull'
-        : 'bg-bear/25 text-bear'
+      ? 'bg-reversal/25 text-reversal'
       : row.isAttraction
         ? 'bg-attraction/25 text-attraction'
         : row.isFlip
@@ -386,7 +379,7 @@ function HeatRow({
       <td
         className={cn(
           'sticky left-0 z-10 border-b border-border/10 px-3 py-1 font-mono text-[12px] tabular-nums',
-          selected ? 'bg-primary/15' : roleCls ? roleCls.split(' ')[0] : 'bg-card',
+          selected ? 'bg-primary/15' : roleCls ? roleCls.split(' ')[0] : 'bg-black',
         )}
       >
         <div className="flex items-center gap-1.5">
@@ -400,9 +393,7 @@ function HeatRow({
           )}
           {row.isSpot && <ChevronLeft className="size-3.5 text-spot" strokeWidth={3} />}
           {row.isFlip && !row.isSpot && <CornerUpLeft className="size-3.5 text-spot" strokeWidth={2.5} />}
-          {row.isReversal && (
-            <CornerUpLeft className={cn('size-3.5', buying ? 'text-bull' : 'text-bear')} strokeWidth={2.5} />
-          )}
+          {row.isReversal && <CornerUpLeft className="size-3.5 text-reversal" strokeWidth={2.5} />}
           {row.isAttraction && <Star className="size-3.5 text-attraction" strokeWidth={2} fill="currentColor" />}
           <span
             className={cn(
@@ -410,9 +401,7 @@ function HeatRow({
               row.isSpot
                 ? 'text-spot'
                 : row.isReversal
-                  ? buying
-                    ? 'text-bull'
-                    : 'text-bear'
+                  ? 'text-reversal'
                   : row.isAttraction
                     ? 'text-attraction'
                     : row.isFlip
@@ -426,11 +415,7 @@ function HeatRow({
             <span
               className={cn(
                 'rounded-full px-1.5 py-px text-[9px] font-bold',
-                row.isAttraction
-                  ? 'bg-attraction/20 text-attraction'
-                  : buying
-                    ? 'bg-bull/20 text-bull'
-                    : 'bg-bear/20 text-bear',
+                row.isAttraction ? 'bg-attraction/20 text-attraction' : 'bg-reversal/20 text-reversal',
               )}
             >
               {row.netPct}%
@@ -440,13 +425,7 @@ function HeatRow({
             <span
               className={cn(
                 'text-[9px] font-semibold',
-                row.isAttraction
-                  ? 'text-attraction/80'
-                  : row.isReversal
-                    ? buying
-                      ? 'text-bull/80'
-                      : 'text-bear/80'
-                    : 'text-spot/80',
+                row.isAttraction ? 'text-attraction/80' : row.isReversal ? 'text-reversal/80' : 'text-spot/80',
               )}
               title="Expiry this strike's value peaks at"
             >
@@ -575,11 +554,7 @@ function StrikeDetail({
           {row.isSpot && <Tag icon={Zap} cls="bg-spot/15 text-spot" label="Spot" />}
           {row.isFlip && <Tag icon={CornerUpLeft} cls="bg-spot/15 text-spot" label="Gamma Flip" />}
           {row.isReversal && (
-            <Tag
-              icon={CornerUpLeft}
-              cls={row.net >= 0 ? 'bg-bull/15 text-bull' : 'bg-bear/15 text-bear'}
-              label={peakCol ? `Reversal risk · ${peakCol.label}` : 'Reversal risk'}
-            />
+            <Tag icon={CornerUpLeft} cls="bg-reversal/15 text-reversal" label={peakCol ? `Reversal risk · ${peakCol.label}` : 'Reversal risk'} />
           )}
           {row.isAttraction && (
             <Tag icon={Star} cls="bg-attraction/15 text-attraction" label={peakCol ? `Attraction · ${peakCol.label}` : 'Attraction'} />
