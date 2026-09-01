@@ -193,7 +193,7 @@ export function GammaMap() {
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-col">
           <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            Flow Map
+            Heat Map
           </h3>
           <span className="text-[10px] text-text-muted">
             Strikes vs expirations · green = buy pressure, red = sell pressure

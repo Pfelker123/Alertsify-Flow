@@ -268,7 +268,8 @@ export function GammaHeatmap() {
         <LegendItem cls="bg-bear" label="Negative gamma (fuel)" />
         <LegendItem cls="bg-spot" label="Spot" />
         <LegendItem cls="bg-attraction" label="Attraction" />
-        <LegendItem cls="bg-reversal" label="Reversal risk" />
+        <LegendItem cls="bg-bull" label="Reversal risk · buying" />
+        <LegendItem cls="bg-bear" label="Reversal risk · selling" />
         <span className="ml-auto text-[10px] text-text-muted">1x / 1.5x / 2x = implied-move bands from spot</span>
       </div>
 
@@ -356,12 +357,18 @@ function HeatRow({
       }
     })
   }
-  const peakToken = row.isAttraction ? '--attraction' : row.isReversal ? '--reversal' : '--spot'
+  // Reversal risk isn't one color — it's whichever side is dominant at that
+  // strike: net GEX >= 0 reads as buying/support building, < 0 as selling
+  // pressure, the same sign the net badge and bar already use below.
+  const buying = row.net >= 0
+  const peakToken = row.isAttraction ? '--attraction' : row.isReversal ? (buying ? '--bull' : '--bear') : '--spot'
 
   const roleCls = row.isSpot
     ? 'bg-spot/25 text-spot'
     : row.isReversal
-      ? 'bg-reversal/25 text-reversal'
+      ? buying
+        ? 'bg-bull/25 text-bull'
+        : 'bg-bear/25 text-bear'
       : row.isAttraction
         ? 'bg-attraction/25 text-attraction'
         : row.isFlip
@@ -393,7 +400,9 @@ function HeatRow({
           )}
           {row.isSpot && <ChevronLeft className="size-3.5 text-spot" strokeWidth={3} />}
           {row.isFlip && !row.isSpot && <CornerUpLeft className="size-3.5 text-spot" strokeWidth={2.5} />}
-          {row.isReversal && <CornerUpLeft className="size-3.5 text-reversal" strokeWidth={2.5} />}
+          {row.isReversal && (
+            <CornerUpLeft className={cn('size-3.5', buying ? 'text-bull' : 'text-bear')} strokeWidth={2.5} />
+          )}
           {row.isAttraction && <Star className="size-3.5 text-attraction" strokeWidth={2} fill="currentColor" />}
           <span
             className={cn(
@@ -401,7 +410,9 @@ function HeatRow({
               row.isSpot
                 ? 'text-spot'
                 : row.isReversal
-                  ? 'text-reversal'
+                  ? buying
+                    ? 'text-bull'
+                    : 'text-bear'
                   : row.isAttraction
                     ? 'text-attraction'
                     : row.isFlip
@@ -415,7 +426,11 @@ function HeatRow({
             <span
               className={cn(
                 'rounded-full px-1.5 py-px text-[9px] font-bold',
-                row.isAttraction ? 'bg-attraction/20 text-attraction' : 'bg-reversal/20 text-reversal',
+                row.isAttraction
+                  ? 'bg-attraction/20 text-attraction'
+                  : buying
+                    ? 'bg-bull/20 text-bull'
+                    : 'bg-bear/20 text-bear',
               )}
             >
               {row.netPct}%
@@ -425,7 +440,13 @@ function HeatRow({
             <span
               className={cn(
                 'text-[9px] font-semibold',
-                row.isAttraction ? 'text-attraction/80' : row.isReversal ? 'text-reversal/80' : 'text-spot/80',
+                row.isAttraction
+                  ? 'text-attraction/80'
+                  : row.isReversal
+                    ? buying
+                      ? 'text-bull/80'
+                      : 'text-bear/80'
+                    : 'text-spot/80',
               )}
               title="Expiry this strike's value peaks at"
             >
@@ -554,7 +575,11 @@ function StrikeDetail({
           {row.isSpot && <Tag icon={Zap} cls="bg-spot/15 text-spot" label="Spot" />}
           {row.isFlip && <Tag icon={CornerUpLeft} cls="bg-spot/15 text-spot" label="Gamma Flip" />}
           {row.isReversal && (
-            <Tag icon={CornerUpLeft} cls="bg-reversal/15 text-reversal" label={peakCol ? `Reversal risk · ${peakCol.label}` : 'Reversal risk'} />
+            <Tag
+              icon={CornerUpLeft}
+              cls={row.net >= 0 ? 'bg-bull/15 text-bull' : 'bg-bear/15 text-bear'}
+              label={peakCol ? `Reversal risk · ${peakCol.label}` : 'Reversal risk'}
+            />
           )}
           {row.isAttraction && (
             <Tag icon={Star} cls="bg-attraction/15 text-attraction" label={peakCol ? `Attraction · ${peakCol.label}` : 'Attraction'} />
