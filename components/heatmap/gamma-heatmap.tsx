@@ -204,16 +204,16 @@ export function GammaHeatmap() {
                       key={c.date}
                       className={cn(
                         'sticky top-0 z-20 px-2 py-1.5 text-center align-top',
-                        c.isNearest ? 'rounded-t-md ring-1 ring-inset ring-primary/60' : 'bg-black',
+                        c.isNearest ? 'rounded-t-md ring-1 ring-inset ring-brand-green/60' : 'bg-black',
                       )}
                       style={
                         c.isNearest
-                          ? { backgroundColor: 'color-mix(in oklch, var(--primary) 18%, black)' }
+                          ? { backgroundColor: 'color-mix(in oklch, var(--brand-green) 18%, black)' }
                           : undefined
                       }
                     >
                       <div className="flex flex-col items-center gap-0.5">
-                        <span className={cn('font-mono text-[11.5px] tabular-nums', c.isNearest ? 'font-extrabold text-primary' : 'font-semibold text-foreground/80')}>
+                        <span className={cn('font-mono text-[11.5px] tabular-nums', c.isNearest ? 'font-extrabold text-brand-green' : 'font-semibold text-foreground/80')}>
                           {c.label}
                         </span>
                         <HeaderStat icon={Star} cls="text-attraction" value={c.attraction} />
@@ -230,7 +230,7 @@ export function GammaHeatmap() {
                           </span>
                         )}
                         {c.isNearest && (
-                          <span className="mt-0.5 rounded bg-primary/25 px-1 text-[8px] font-bold text-primary">
+                          <span className="mt-0.5 rounded bg-brand-green/25 px-1 text-[8px] font-bold text-brand-green">
                             {board.updatedMinutesAgo}m ago
                           </span>
                         )}
@@ -305,7 +305,7 @@ function InsightBanner({ metrics, spot }: { metrics: import('@/lib/types').GexBo
           : 'Above that line, hedging turns supportive and price meets more resistance to fast moves.'}
       </p>
       <p className="text-[13px] leading-relaxed text-foreground/90">
-        <span className="mr-1.5 inline-flex items-center gap-1 font-extrabold text-bull">
+        <span className="mr-1.5 inline-flex items-center gap-1 font-extrabold text-grower">
           <TrendingUp className="size-3.5" strokeWidth={2.5} />
           Grower
         </span>
@@ -632,7 +632,7 @@ function StatsRow({ metrics, spot }: { metrics: import('@/lib/types').GexBoardMe
       <StatCard label="Attraction" value={String(metrics.callWall)} sub={rel(metrics.callWall)} accent="attraction" icon={Star} />
       <StatCard label="0DTE Attraction" value={String(metrics.zeroDte)} sub={rel(metrics.zeroDte)} accent="attraction" icon={Star} />
       <StatCard label="Gamma Flip" value={String(metrics.gammaFlip)} sub={rel(metrics.gammaFlip)} accent="spot" icon={CornerUpLeft} />
-      <StatCard label="Grower" value={String(metrics.grower.strike)} sub={`+${metrics.grower.share}% of gamma`} accent="bull" icon={TrendingUp} />
+      <StatCard label="Grower" value={String(metrics.grower.strike)} sub={`+${metrics.grower.share}% of gamma`} accent="grower" icon={TrendingUp} />
       <StatCard label="Implied Move" value={`±${metrics.move}`} sub="today" icon={Waves} />
       <StatCard label="ATM IV" value={`${metrics.atmIv}%`} />
     </div>
@@ -649,18 +649,20 @@ function StatCard({
   label: string
   value: string
   sub?: string
-  accent?: 'bull' | 'bear' | 'spot' | 'attraction'
+  accent?: 'bull' | 'bear' | 'spot' | 'attraction' | 'grower'
   icon?: typeof Star
 }) {
   const iconCls =
-    accent === 'bull' ? 'text-bull' : accent === 'bear' ? 'text-bear' : accent === 'spot' ? 'text-spot' : accent === 'attraction' ? 'text-attraction' : ''
-  const barCls = accent === 'bull' ? 'bg-bull' : accent === 'bear' ? 'bg-bear' : accent === 'spot' ? 'bg-spot' : accent === 'attraction' ? 'bg-attraction' : 'bg-border'
+    accent === 'bull' ? 'text-bull' : accent === 'bear' ? 'text-bear' : accent === 'spot' ? 'text-spot' : accent === 'attraction' ? 'text-attraction' : accent === 'grower' ? 'text-grower' : ''
+  const barCls = accent === 'bull' ? 'bg-bull' : accent === 'bear' ? 'bg-bear' : accent === 'spot' ? 'bg-spot' : accent === 'attraction' ? 'bg-attraction' : accent === 'grower' ? 'bg-grower' : 'bg-border'
+  const badgeBgCls =
+    accent === 'bull' ? 'bg-bull/15' : accent === 'bear' ? 'bg-bear/15' : accent === 'spot' ? 'bg-spot/15' : accent === 'attraction' ? 'bg-attraction/15' : accent === 'grower' ? 'bg-grower/15' : 'bg-secondary'
   return (
     <div className="group relative flex flex-col gap-1 overflow-hidden rounded-lg border border-border bg-card px-3 py-2.5 transition-transform hover:-translate-y-0.5">
       <span className={cn('absolute inset-x-0 top-0 h-1', barCls)} />
       <span className="mt-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
         {Icon && (
-          <span className={cn('flex size-4 items-center justify-center rounded-full', accent ? `${barCls}/15` : 'bg-secondary')}>
+          <span className={cn('flex size-4 items-center justify-center rounded-full', badgeBgCls)}>
             <Icon className={cn('size-2.5', iconCls)} strokeWidth={2.5} />
           </span>
         )}
@@ -673,6 +675,7 @@ function StatCard({
           accent === 'bear' && 'text-bear',
           accent === 'spot' && 'text-spot',
           accent === 'attraction' && 'text-attraction',
+          accent === 'grower' && 'text-grower',
           !accent && 'text-foreground',
         )}
       >

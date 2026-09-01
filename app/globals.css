@@ -52,6 +52,8 @@
   --color-reversal-foreground: var(--reversal-foreground);
   --color-spot: var(--spot);
   --color-spot-foreground: var(--spot-foreground);
+  --color-grower: var(--grower);
+  --color-grower-foreground: var(--grower-foreground);
   --color-continuation: var(--bull);
   --color-neutral: var(--neutral);
 
@@ -121,6 +123,8 @@
   --reversal-foreground: #1c0819;
   --spot: #38bdf8;
   --spot-foreground: #04283d;
+  --grower: #f5a623;
+  --grower-foreground: #2b1400;
   --neutral: #9aa3ae;
 
   --chart-1: #3fd08a;
