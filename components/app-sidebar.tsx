@@ -5,7 +5,6 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard,
-  Grid3x3,
   CandlestickChart,
   Bell,
   Radar,
@@ -26,7 +25,6 @@ import { FlowstersLogo, FlowstersMark } from '@/components/flowsters-logo'
 const NAV = [
   { href: '/', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/flow', label: 'Options Flow', icon: Waves },
-  { href: '/flow-map', label: 'Flow Map', icon: Grid3x3 },
   { href: '/heatmap', label: 'Heat Map', icon: Flame },
   { href: '/charting', label: 'Charting', icon: CandlestickChart },
   { href: '/alerts', label: 'Alerts', icon: Bell },

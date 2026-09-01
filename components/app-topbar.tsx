@@ -39,7 +39,8 @@ const HEALTH_LABEL: Record<string, string> = {
 
 const NAV = [
   { href: '/', label: 'Dashboard' },
-  { href: '/flow-map', label: 'Flow Map' },
+  { href: '/flow', label: 'Options Flow' },
+  { href: '/heatmap', label: 'Heat Map' },
   { href: '/charting', label: 'Charting' },
   { href: '/alerts', label: 'Alerts' },
   { href: '/scanner', label: 'Scanner' },

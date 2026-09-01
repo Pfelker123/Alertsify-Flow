@@ -95,14 +95,21 @@ function cellVisual(v: number | null, max: number) {
     return { style: undefined, cls: 'text-foreground/45 font-normal' }
   }
   const token = v > 0 ? '--bull' : '--bear'
+  // Three tiers so importance is a real gradient, not on/off: the board's
+  // standout numbers should read as louder at a glance, not just present.
   const huge = abs >= max * 0.55
-  const core = huge ? 68 : 42
+  const hot = !huge && abs >= max * 0.24
+  const core = huge ? 70 : hot ? 52 : 36
   return {
     style: {
       backgroundImage: `linear-gradient(90deg, transparent 0%, color-mix(in oklch, var(${token}) ${core}%, black) 28%, color-mix(in oklch, var(${token}) ${core}%, black) 72%, transparent 100%)`,
       ...(huge ? { boxShadow: `0 0 16px -4px color-mix(in oklch, var(${token}) 70%, transparent)` } : {}),
     },
-    cls: huge ? 'text-[12px] font-extrabold text-white' : 'text-[11.5px] font-bold text-white',
+    cls: huge
+      ? 'text-[12.5px] font-extrabold text-white'
+      : hot
+        ? 'text-[11.5px] font-bold text-white'
+        : 'text-[11px] font-semibold text-white/85',
   }
 }
 
@@ -334,19 +341,22 @@ function HeatRow({
   selected: boolean
   onSelect: () => void
 }) {
-  // Which expiry this strike's value actually peaks at, so the Attraction/
-  // Reversal badge can say *which date* it's the busiest strike for.
+  // Which expiry this strike's value actually peaks at — the specific
+  // (strike, expiry) cell that IS the node, not just the row it's on.
+  let peakIdx: number | null = null
   let peakLabel: string | null = null
-  if (row.isAttraction || row.isReversal) {
+  if (row.isAttraction || row.isReversal || row.isFlip) {
     let peakAbs = -1
     row.values.forEach((v, i) => {
       const abs = Math.abs(v ?? 0)
       if (abs > peakAbs) {
         peakAbs = abs
+        peakIdx = i
         peakLabel = columns[i]?.label ?? null
       }
     })
   }
+  const peakToken = row.isAttraction ? '--attraction' : row.isReversal ? '--reversal' : '--spot'
 
   const roleCls = row.isSpot
     ? 'bg-spot/25 text-spot'
@@ -413,7 +423,10 @@ function HeatRow({
           )}
           {peakLabel && (
             <span
-              className={cn('text-[9px] font-semibold', row.isAttraction ? 'text-attraction/80' : 'text-reversal/80')}
+              className={cn(
+                'text-[9px] font-semibold',
+                row.isAttraction ? 'text-attraction/80' : row.isReversal ? 'text-reversal/80' : 'text-spot/80',
+              )}
               title="Expiry this strike's value peaks at"
             >
               · {peakLabel}
@@ -425,9 +438,20 @@ function HeatRow({
       </td>
       {row.values.map((v, i) => {
         const cell = cellVisual(v, maxCellAbs)
+        const isPeak = i === peakIdx
         return (
-          <td key={columns[i].date} className="border-b border-border/10 px-1 py-1 text-center" style={cell.style}>
-            <span className={cn('font-mono tabular-nums', cell.cls)}>{v === null ? '·' : money(v)}</span>
+          <td
+            key={columns[i].date}
+            className={cn('border-b border-border/10 px-1 py-1 text-center', isPeak && 'relative')}
+            style={cell.style}
+          >
+            {isPeak && (
+              <span
+                className="pointer-events-none absolute inset-0.5 rounded-[3px]"
+                style={{ boxShadow: `inset 0 0 0 2px var(${peakToken})`, backgroundColor: `color-mix(in oklch, var(${peakToken}) 22%, transparent)` }}
+              />
+            )}
+            <span className={cn('relative font-mono tabular-nums', cell.cls)}>{v === null ? '·' : money(v)}</span>
           </td>
         )
       })}

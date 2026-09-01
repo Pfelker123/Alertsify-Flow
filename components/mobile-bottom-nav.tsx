@@ -24,7 +24,7 @@ const ITEMS = [
     href: '/flow',
     label: 'Flow',
     icon: Waves,
-    match: (p: string) => p.startsWith('/flow') && !p.startsWith('/flow-map'),
+    match: (p: string) => p.startsWith('/flow'),
   },
   {
     href: '/alerts',
@@ -40,7 +40,7 @@ const ITEMS = [
   },
 ]
 
-const MORE = ['/flow-map', '/heatmap', '/scanner', '/backtester', '/settings', '/help']
+const MORE = ['/heatmap', '/scanner', '/backtester', '/settings', '/help']
 
 export function MobileBottomNav() {
   const pathname = usePathname()
