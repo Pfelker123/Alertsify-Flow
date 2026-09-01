@@ -32,6 +32,38 @@ function fmtDate(iso: string) {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
 }
 
+// Standard normal CDF via the Abramowitz-Stegun erf approximation — no
+// external stats library needed for a reach-probability estimate.
+function erf(x: number): number {
+  const sign = x < 0 ? -1 : 1
+  const ax = Math.abs(x)
+  const a1 = 0.254829592,
+    a2 = -0.284496736,
+    a3 = 1.421413741,
+    a4 = -1.453152027,
+    a5 = 1.061405429,
+    p = 0.3275911
+  const t = 1 / (1 + p * ax)
+  const y = 1 - (((((a5 * t + a4) * t + a3) * t + a2) * t + a1) * t) * Math.exp(-ax * ax)
+  return sign * y
+}
+function normalCdf(z: number): number {
+  return 0.5 * (1 + erf(z / Math.SQRT2))
+}
+
+/**
+ * Probability price *reaches* (not just ends beyond) this strike by the
+ * given number of days, treating the implied daily move as one standard
+ * deviation of a driftless random walk and using the reflection principle
+ * for first-passage probability: P(touch) = 2 * (1 - CDF(|distance| / sigma)).
+ */
+function reachProbability(spot: number, strike: number, dailyMove: number, days: number): number {
+  const sigma = dailyMove * Math.sqrt(Math.max(days, 1))
+  if (!(sigma > 0)) return 0
+  const z = Math.abs(strike - spot) / sigma
+  return Math.max(0, Math.min(100, Math.round(2 * (1 - normalCdf(z)) * 100)))
+}
+
 // Standard monthly options expiration = the 3rd Friday of the month;
 // quarterly OPEX is that same Friday in Mar/Jun/Sep/Dec.
 function opexInfo(iso: string): { quarterly: boolean } | null {
@@ -155,7 +187,7 @@ export function GammaHeatmap() {
           <table className="w-full min-w-[980px] border-collapse">
             <thead>
               <tr className="border-b border-border">
-                <th className="sticky left-0 top-0 z-20 bg-card px-3 py-2 text-left text-[11px] font-medium text-muted-foreground">
+                <th className="sticky left-0 top-0 z-30 bg-card px-3 py-2 text-left text-[11px] font-medium text-muted-foreground">
                   Strike
                 </th>
                 {columns.map((c) => {
@@ -164,9 +196,14 @@ export function GammaHeatmap() {
                     <th
                       key={c.date}
                       className={cn(
-                        'px-2 py-1.5 text-center align-top',
-                        c.isNearest && 'rounded-t-md ring-1 ring-inset ring-primary/60 bg-primary/10',
+                        'sticky top-0 z-20 px-2 py-1.5 text-center align-top',
+                        c.isNearest ? 'rounded-t-md ring-1 ring-inset ring-primary/60' : 'bg-card',
                       )}
+                      style={
+                        c.isNearest
+                          ? { backgroundColor: 'color-mix(in oklch, var(--primary) 14%, var(--card))' }
+                          : undefined
+                      }
                     >
                       <div className="flex flex-col items-center gap-0.5">
                         <span className={cn('font-mono text-[11.5px] tabular-nums', c.isNearest ? 'font-extrabold text-primary' : 'font-semibold text-foreground/80')}>
@@ -194,7 +231,7 @@ export function GammaHeatmap() {
                     </th>
                   )
                 })}
-                <th className="px-3 py-2 text-right text-[11px] font-medium text-muted-foreground">Net GEX</th>
+                <th className="sticky top-0 z-20 bg-card px-3 py-2 text-right text-[11px] font-medium text-muted-foreground">Net GEX</th>
               </tr>
             </thead>
             <tbody>
@@ -214,7 +251,7 @@ export function GammaHeatmap() {
         </div>
 
         {selectedRow && (
-          <StrikeDetail row={selectedRow} columns={columns} spot={spot} onClose={() => setSelected(null)} />
+          <StrikeDetail row={selectedRow} columns={columns} spot={spot} move={metrics.move} onClose={() => setSelected(null)} />
         )}
       </div>
 
@@ -252,7 +289,7 @@ function InsightBanner({ metrics, spot }: { metrics: import('@/lib/types').GexBo
     <div className="flex flex-col gap-2 rounded-xl border border-border bg-card px-4 py-3">
       <p className="text-[13px] leading-relaxed text-foreground/90">
         <span className="mr-1.5 inline-flex items-center gap-1 font-extrabold text-spot">
-          <Zap className="size-3.5" strokeWidth={2.5} fill="currentColor" />
+          <CornerUpLeft className="size-3.5" strokeWidth={2.5} />
           Flip
         </span>
         Price is {above ? 'above' : 'below'} the flip (${metrics.gammaFlip}), the {side} side.{' '}
@@ -261,9 +298,9 @@ function InsightBanner({ metrics, spot }: { metrics: import('@/lib/types').GexBo
           : 'Above that line, hedging turns supportive and price meets more resistance to fast moves.'}
       </p>
       <p className="text-[13px] leading-relaxed text-foreground/90">
-        <span className="mr-1.5 inline-flex items-center gap-1 font-extrabold text-attraction">
-          <Star className="size-3.5" strokeWidth={2} fill="currentColor" />
-          Surge
+        <span className="mr-1.5 inline-flex items-center gap-1 font-extrabold text-bull">
+          <TrendingUp className="size-3.5" strokeWidth={2.5} />
+          Grower
         </span>
         Today&apos;s flow piles up at <span className="font-bold text-foreground">{metrics.grower.strike}</span> (
         {metrics.grower.share}% of gamma); opposite flow stacks near{' '}
@@ -291,12 +328,26 @@ function HeatRow({
   onSelect,
 }: {
   row: GammaHeatmapRow
-  columns: { date: string; isNearest: boolean }[]
+  columns: { date: string; label: string; isNearest: boolean }[]
   maxCellAbs: number
   maxNetAbs: number
   selected: boolean
   onSelect: () => void
 }) {
+  // Which expiry this strike's value actually peaks at, so the Attraction/
+  // Reversal badge can say *which date* it's the busiest strike for.
+  let peakLabel: string | null = null
+  if (row.isAttraction || row.isReversal) {
+    let peakAbs = -1
+    row.values.forEach((v, i) => {
+      const abs = Math.abs(v ?? 0)
+      if (abs > peakAbs) {
+        peakAbs = abs
+        peakLabel = columns[i]?.label ?? null
+      }
+    })
+  }
+
   const roleCls = row.isSpot
     ? 'bg-spot/25 text-spot'
     : row.isReversal
@@ -331,7 +382,7 @@ function HeatRow({
             </span>
           )}
           {row.isSpot && <ChevronLeft className="size-3.5 text-spot" strokeWidth={3} />}
-          {row.isFlip && !row.isSpot && <Zap className="size-3.5 text-spot" strokeWidth={2.5} fill="currentColor" />}
+          {row.isFlip && !row.isSpot && <CornerUpLeft className="size-3.5 text-spot" strokeWidth={2.5} />}
           {row.isReversal && <CornerUpLeft className="size-3.5 text-reversal" strokeWidth={2.5} />}
           {row.isAttraction && <Star className="size-3.5 text-attraction" strokeWidth={2} fill="currentColor" />}
           <span
@@ -358,6 +409,14 @@ function HeatRow({
               )}
             >
               {row.netPct}%
+            </span>
+          )}
+          {peakLabel && (
+            <span
+              className={cn('text-[9px] font-semibold', row.isAttraction ? 'text-attraction/80' : 'text-reversal/80')}
+              title="Expiry this strike's value peaks at"
+            >
+              · {peakLabel}
             </span>
           )}
           {row.isSpot && <span className="text-[9px] font-extrabold uppercase tracking-wide text-spot">Spot</span>}
@@ -416,16 +475,38 @@ function StrikeDetail({
   row,
   columns,
   spot,
+  move,
   onClose,
 }: {
   row: GammaHeatmapRow
-  columns: { label: string; date: string }[]
+  columns: { label: string; date: string; dte: number }[]
   spot: number
+  move: number
   onClose: () => void
 }) {
   const dist = ((row.strike - spot) / spot) * 100
   const positive = row.net >= 0
   const colMax = Math.max(1, ...row.values.map((v) => Math.abs(v ?? 0)))
+
+  // The nearest expiry on the board is the natural "by when" for a reach
+  // estimate — same driftless-random-walk model as everywhere else, no
+  // separate invented number.
+  const target = columns[0]
+  const odds = target ? reachProbability(spot, row.strike, move, target.dte) : 0
+  const oddsBars = 20
+  const litBars = Math.round((odds / 100) * oddsBars)
+
+  // Which expiry this strike's own value peaks at — lets "Attraction"/
+  // "Reversal" say *which date* they're the busiest for, not just that
+  // they are.
+  const peakCol = row.values.reduce<{ abs: number; col: (typeof columns)[number] | null }>(
+    (best, v, i) => {
+      const abs = Math.abs(v ?? 0)
+      return abs > best.abs ? { abs, col: columns[i] ?? null } : best
+    },
+    { abs: -1, col: null },
+  ).col
+
   return (
     <aside className="flex w-full flex-col gap-3 rounded-xl border border-border bg-card p-4">
       <div className="flex items-start justify-between">
@@ -447,9 +528,31 @@ function StrikeDetail({
       {(row.isSpot || row.isFlip || row.isReversal || row.isAttraction) && (
         <div className="flex flex-wrap gap-1.5">
           {row.isSpot && <Tag icon={Zap} cls="bg-spot/15 text-spot" label="Spot" />}
-          {row.isFlip && <Tag icon={Zap} cls="bg-spot/15 text-spot" label="Gamma Flip" />}
-          {row.isReversal && <Tag icon={CornerUpLeft} cls="bg-reversal/15 text-reversal" label="Reversal risk" />}
-          {row.isAttraction && <Tag icon={Star} cls="bg-attraction/15 text-attraction" label="Attraction" />}
+          {row.isFlip && <Tag icon={CornerUpLeft} cls="bg-spot/15 text-spot" label="Gamma Flip" />}
+          {row.isReversal && (
+            <Tag icon={CornerUpLeft} cls="bg-reversal/15 text-reversal" label={peakCol ? `Reversal risk · ${peakCol.label}` : 'Reversal risk'} />
+          )}
+          {row.isAttraction && (
+            <Tag icon={Star} cls="bg-attraction/15 text-attraction" label={peakCol ? `Attraction · ${peakCol.label}` : 'Attraction'} />
+          )}
+        </div>
+      )}
+
+      {target && (
+        <div className="rounded-lg border border-border/60 bg-secondary/40 px-3 py-2.5">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] uppercase tracking-wider text-text-muted">Reach odds</span>
+            <span className="text-[10px] text-text-muted">by {target.label}</span>
+          </div>
+          <div className="mt-1 font-mono text-2xl font-extrabold tabular-nums text-primary">~{odds}%</div>
+          <div className="mt-1.5 flex gap-[3px]">
+            {Array.from({ length: oddsBars }).map((_, i) => (
+              <span key={i} className={cn('h-2.5 flex-1 rounded-[2px]', i < litBars ? 'bg-primary' : 'bg-muted/40')} />
+            ))}
+          </div>
+          <p className="mt-1.5 text-[10px] leading-relaxed text-text-muted">
+            Chance price reaches {row.strike} by {target.label} ({target.dte}d out), from spot ({spot.toFixed(2)}) and today&apos;s implied move (±{move.toFixed(2)}/day) — the odds of getting there, not of holding.
+          </p>
         </div>
       )}
 
@@ -504,7 +607,7 @@ function StatsRow({ metrics, spot }: { metrics: import('@/lib/types').GexBoardMe
       <StatCard label="Put Wall" value={String(metrics.putWall)} sub={rel(metrics.putWall)} accent="bear" icon={CornerUpLeft} />
       <StatCard label="Attraction" value={String(metrics.callWall)} sub={rel(metrics.callWall)} accent="attraction" icon={Star} />
       <StatCard label="0DTE Attraction" value={String(metrics.zeroDte)} sub={rel(metrics.zeroDte)} accent="attraction" icon={Star} />
-      <StatCard label="Gamma Flip" value={String(metrics.gammaFlip)} sub={rel(metrics.gammaFlip)} accent="spot" icon={Zap} />
+      <StatCard label="Gamma Flip" value={String(metrics.gammaFlip)} sub={rel(metrics.gammaFlip)} accent="spot" icon={CornerUpLeft} />
       <StatCard label="Grower" value={String(metrics.grower.strike)} sub={`+${metrics.grower.share}% of gamma`} accent="bull" icon={TrendingUp} />
       <StatCard label="Implied Move" value={`±${metrics.move}`} sub="today" icon={Waves} />
       <StatCard label="ATM IV" value={`${metrics.atmIv}%`} />

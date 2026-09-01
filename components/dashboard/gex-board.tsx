@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Star, Zap, TrendingUp, ArrowDown } from 'lucide-react'
+import { Star, Zap, TrendingUp, ArrowDown, CornerUpLeft } from 'lucide-react'
 import { useFilters } from '@/components/filters-context'
 import { useGexBoard } from '@/lib/uw/hooks'
 import { cn } from '@/lib/utils'
@@ -16,7 +16,7 @@ const ROLE_STYLE: Record<
   { label: string; icon: typeof Star; text: string; rowBg: string; dashed?: boolean }
 > = {
   spot: { label: 'Spot', icon: Zap, text: 'text-spot', rowBg: 'bg-spot/25' },
-  flip: { label: 'Gamma Flip', icon: Zap, text: 'text-spot', rowBg: 'bg-spot/10', dashed: true },
+  flip: { label: 'Gamma Flip', icon: CornerUpLeft, text: 'text-spot', rowBg: 'bg-spot/10', dashed: true },
   attraction: { label: 'Attraction', icon: Star, text: 'text-attraction', rowBg: 'bg-attraction/25' },
   putWall: { label: 'Put Wall', icon: ArrowDown, text: 'text-bear', rowBg: 'bg-bear/25' },
   grower: { label: 'Grower', icon: TrendingUp, text: 'text-bull', rowBg: 'bg-bull/25' },
